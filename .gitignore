@@ -21,5 +21,7 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+.atl/
+
 *.tsbuildinfo
 .eslintcache
