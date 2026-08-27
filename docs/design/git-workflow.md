@@ -183,12 +183,13 @@ Esto **no** contradice el requisito de commits progresivos: al final del mes `ma
 
 ### Protección de `main`
 
-En la configuración del repositorio, activar sobre `main`:
+**Decisión tomada: se deja la configuración por defecto, sin protección de rama.**
 
-- Requerir pull request antes de integrar.
-- Borrar la rama automáticamente al integrar.
+GitHub permite exigir pull request antes de integrar sobre `main`. En un proyecto individual de un mes se consideró innecesario, y se optó por no activarlo.
 
-Sí, te obliga a vos mismo. **Esa es la idea**: la disciplina que depende de acordarse no es disciplina.
+La consecuencia hay que asumirla con los ojos abiertos: **nada impide técnicamente commitear directo sobre `main`.** El flujo de ramas de este documento pasa a ser una disciplina personal en lugar de una regla que la herramienta hace cumplir. Se sigue igual: rama, pull request, relectura del propio diff, integración.
+
+Si en algún momento aparece un commit directo sobre `main` que no sea el inicial, la regla se rompió sola. Ahí conviene activar la protección.
 
 ---
 
