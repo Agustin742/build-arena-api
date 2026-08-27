@@ -25,7 +25,8 @@ Cinco reglas que no se negocian, porque cada una previene una forma conocida de 
 - ESLint 9 con configuración plana.
 - `.gitignore` con `.env`, y `.env.example` con las variables sin valores.
 - Endpoint `GET /health` que devuelve estado y versión.
-- Proyecto en Railway o Render con PostgreSQL provisionado por el proveedor.
+- API desplegada en Render (web service del plan gratuito).
+- PostgreSQL en Neon (plan gratuito permanente). El PostgreSQL gratuito de Render expira a los 30 días y luego se borra, por lo que no sobrevive al período de corrección.
 - Variables `DATABASE_URL`, `JWT_SECRET` y `JWT_REFRESH_SECRET` cargadas **en el proveedor**.
 
 **Terminado cuando:** la URL de producción responde `200` en `/health`.
@@ -34,7 +35,7 @@ Cinco reglas que no se negocian, porque cada una previene una forma conocida de 
 chore: scaffold nestjs project with typescript
 chore: add eslint flat config
 feat: add health endpoint
-chore: configure railway deployment
+chore: configure render deployment
 ```
 
 ---
