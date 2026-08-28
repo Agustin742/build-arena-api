@@ -147,6 +147,8 @@ El gateway de WebSocket es una capa que **maneja** ese motor: recibe el mensaje,
 
 **Motor primero, socket después. Nunca al revés.**
 
+Cómo se reparte el trabajo entre controller, service y motor —y por qué no hay clases base— está en [`architecture.md`](./architecture.md).
+
 ---
 
 ## 4. Sistema de combate
