@@ -19,12 +19,12 @@ Esa es la premisa del proyecto: *si el cliente puede calcularlo, el cliente pued
 
 ## Estado
 
-En desarrollo. Fase 0 completa: proyecto inicializado y desplegable.
+En desarrollo. La API está desplegada y respondiendo, con el modelo de datos migrado y el catálogo de habilidades cargado.
 
 | Fase | Estado |
 | --- | --- |
 | 0 — Fundación | Completa |
-| 1 — Persistencia | Pendiente |
+| 1 — Persistencia | Completa |
 | 2 — Autenticación y seguridad | Pendiente |
 | 3 — Motor de combate | Pendiente |
 | 4 — Builds y catálogo | Pendiente |
@@ -39,7 +39,7 @@ En desarrollo. Fase 0 completa: proyecto inicializado y desplegable.
 | Rol | Herramienta |
 | --- | --- |
 | Framework | NestJS 11 + TypeScript |
-| ORM y base de datos | Prisma + PostgreSQL |
+| ORM y base de datos | Prisma 7 + PostgreSQL |
 | Autenticación | `@nestjs/jwt` y `passport-jwt` (access + refresh) |
 | Hasheo | `bcrypt` |
 | Validación | `class-validator` y `class-transformer` |
@@ -51,15 +51,21 @@ En desarrollo. Fase 0 completa: proyecto inicializado y desplegable.
 
 ## Instalación
 
-Requiere Node 22 o superior y `pnpm`.
+Requiere Node 22 o superior, `pnpm` y una base PostgreSQL accesible.
 
 ```bash
 pnpm install
 cp .env.example .env
+pnpm db:migrate
+pnpm db:seed
 pnpm start:dev
 ```
 
 La API queda en `http://localhost:3000`.
+
+`db:migrate` aplica las migraciones y genera el cliente de Prisma; `db:seed` carga el catálogo de habilidades. El seed es idempotente: correrlo de nuevo actualiza las filas existentes en lugar de duplicarlas.
+
+> **Nunca uses la base de producción para desarrollar.** El proyecto usa dos bases distintas: un branch de desarrollo y uno de producción en Neon.
 
 ---
 
@@ -86,12 +92,20 @@ Están declaradas sin valores en `.env.example`. `.env` nunca se commitea.
 
 ```bash
 pnpm start:dev      # desarrollo con recarga
-pnpm build          # compilación a dist
+pnpm build          # genera el cliente de Prisma y compila a dist
 pnpm start:prod     # ejecución de la compilación
 pnpm lint           # eslint con corrección automática
 pnpm test           # tests unitarios
 pnpm test:e2e       # tests de extremo a extremo
+
+pnpm db:migrate     # crea y aplica una migración en desarrollo
+pnpm db:deploy      # aplica migraciones pendientes en producción
+pnpm db:generate    # regenera el cliente de Prisma
+pnpm db:seed        # carga el catálogo de habilidades
+pnpm db:studio      # explorador visual de la base
 ```
+
+`db:migrate` solo va en desarrollo: puede resetear la base. En producción corre `db:deploy`, que aplica lo que ya existe y nunca genera migraciones nuevas.
 
 ---
 
@@ -129,4 +143,28 @@ La referencia interactiva se sirve en `/reference`, generada con Scalar a partir
 
 ## Deploy
 
-Pendiente de definir el proveedor.
+La API corre en **Render** y la base en **Neon**, en dos servicios separados unidos por `DATABASE_URL`.
+
+| Pieza | Proveedor | Por qué |
+| --- | --- | --- |
+| API | Render, plan gratuito | Despliegue automático desde `main` |
+| PostgreSQL | Neon, plan gratuito | El PostgreSQL gratuito de Render expira a los 30 días y luego se borra |
+
+```
+URL          https://build-arena-api.onrender.com
+Health       https://build-arena-api.onrender.com/health
+```
+
+Comandos configurados en el proveedor:
+
+```bash
+# Build Command
+npm i -g pnpm@11.17.0 && pnpm install --frozen-lockfile && pnpm run build
+
+# Start Command
+pnpm db:deploy && pnpm db:seed && node dist/main
+```
+
+Las variables de entorno se cargan en el panel de Render, nunca en el repositorio.
+
+> El plan gratuito apaga el servicio tras 15 minutos sin tráfico, y la primera petición después de eso tarda cerca de un minuto en despertar.
