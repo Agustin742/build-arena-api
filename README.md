@@ -121,6 +121,7 @@ La referencia interactiva se sirve en `/reference`, generada con Scalar a partir
 | --- | --- |
 | [`docs/brief`](./docs/brief/proyecto-4-integrartec-2026.md) | Consigna original de la cátedra |
 | [`docs/design/overview.md`](./docs/design/overview.md) | Diseño general, decisiones y modelo de datos |
+| [`docs/design/architecture.md`](./docs/design/architecture.md) | Capas, responsabilidades y qué se comparte |
 | [`docs/design/implementation-plan.md`](./docs/design/implementation-plan.md) | Plan de fases y calendario |
 | [`docs/design/git-workflow.md`](./docs/design/git-workflow.md) | Ramas, commits e integración |
 
