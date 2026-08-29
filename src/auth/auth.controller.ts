@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -29,12 +30,15 @@ import { RegisterDto } from './dto/register.dto';
 import { TokenPairDto } from './dto/token-pair.dto';
 import type { TokenPair } from './token.service';
 
+const CREDENTIAL_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle(CREDENTIAL_THROTTLE)
   @Post('register')
   @ApiOperation({ summary: 'Create an account' })
   @ApiCreatedResponse({ type: UserProfileDto })
@@ -44,6 +48,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(CREDENTIAL_THROTTLE)
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Exchange credentials for a token pair' })
@@ -54,6 +59,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle(CREDENTIAL_THROTTLE)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

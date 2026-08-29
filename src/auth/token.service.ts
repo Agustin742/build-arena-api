@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { JwtSignOptions } from '@nestjs/jwt';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
-import { requireEnv } from '../common/require-env';
+import { requireEnv } from '../common/env';
 
 export type AccessTokenPayload = {
   sub: string;
