@@ -85,6 +85,16 @@ export class AuthService {
     });
   }
 
+  async profile(userId: string): Promise<PublicUser> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    return toPublicUser(user);
+  }
+
   private async startSession(user: User): Promise<TokenPair> {
     const pair = await this.tokens.issuePair(user.id, user.username);
 

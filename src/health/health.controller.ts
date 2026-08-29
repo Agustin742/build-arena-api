@@ -1,9 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
 
+import { Public } from '../common/decorators/public.decorator';
 import type { HealthStatus } from './health-status.interface';
 
 @Controller('health')
 export class HealthController {
+  @Public()
   @Get()
   check(): HealthStatus {
     return {

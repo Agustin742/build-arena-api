@@ -9,6 +9,13 @@ import { PrismaService } from './../src/prisma/prisma.service';
 describe('HealthController (e2e)', () => {
   let app: INestApplication<App>;
 
+  beforeAll(() => {
+    process.env.JWT_SECRET = 'access-secret-for-e2e';
+    process.env.JWT_REFRESH_SECRET = 'refresh-secret-for-e2e';
+    process.env.JWT_ACCESS_EXPIRES_IN = '15m';
+    process.env.JWT_REFRESH_EXPIRES_IN = '7d';
+  });
+
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],

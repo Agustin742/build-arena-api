@@ -190,6 +190,26 @@ describe('AuthService', () => {
     });
   });
 
+  describe('profile', () => {
+    it('returns the public profile of the authenticated user', async () => {
+      await expect(service.profile(storedUser.id)).resolves.toEqual({
+        id: storedUser.id,
+        email: storedUser.email,
+        username: storedUser.username,
+        rating: storedUser.rating,
+        createdAt: storedUser.createdAt,
+      });
+    });
+
+    it('rejects a token whose user no longer exists', async () => {
+      findUnique.mockResolvedValue(null);
+
+      await expect(service.profile(storedUser.id)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+  });
+
   describe('logout', () => {
     it('clears the stored refresh token', async () => {
       const pair = await service.login({ email: dto.email, password });
