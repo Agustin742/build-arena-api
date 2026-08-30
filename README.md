@@ -96,7 +96,7 @@ pnpm build          # genera el cliente de Prisma y compila a dist
 pnpm start:prod     # ejecución de la compilación
 pnpm lint           # eslint con corrección automática
 pnpm test           # tests unitarios
-pnpm test:e2e       # tests de extremo a extremo
+pnpm test:e2e       # tests de extremo a extremo (requieren base de datos)
 
 pnpm db:migrate     # crea y aplica una migración en desarrollo
 pnpm db:deploy      # aplica migraciones pendientes en producción
