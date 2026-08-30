@@ -1,0 +1,62 @@
+schema: spec-driven
+
+context: |
+  Project: build-arena-api — turn-based build duels resolved server-side.
+  Tech stack: NestJS 11 (CommonJS, NOT ESM), TypeScript, Prisma 7.10.0 with
+  @prisma/adapter-pg, PostgreSQL on Neon, pnpm 11, Node >=22 (Node 24 in use).
+  Architecture: NestJS modules under src/ (auth, user, health, common, prisma),
+  Prisma client generated into src/generated/prisma (gitignored).
+  Testing: Jest (unit via ts-jest, e2e via node --experimental-vm-modules
+  because Prisma 7's client loads its WASM compiler via dynamic import, which
+  Jest CJS rejects otherwise).
+  Style: ESLint 9 flat config + Prettier (singleQuote, trailingComma: all).
+
+strict_tdd: true
+
+testing:
+  unit:
+    command: pnpm test
+    framework: jest (ts-jest)
+  e2e:
+    command: pnpm test:e2e
+    framework: jest --config ./test/jest-e2e.json (node --experimental-vm-modules)
+  coverage:
+    command: pnpm test:cov
+  lint:
+    command: pnpm lint
+  build:
+    command: pnpm build
+    note: runs "prisma generate && nest build"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Flag any change touching Prisma schema, auth, or rate limiting as risky
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows (e.g. combat resolution)
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Respect the 400 changed-line review budget; propose chained PRs when at risk
+  apply:
+    guidelines:
+      - Follow existing NestJS module conventions (module/controller/service/dto)
+      - Never emit a .ts file outside src/ that the build tsconfig would pick up
+        (breaks the Render start command by emitting dist/src/main.js) — keep
+        prisma.config.ts and prisma/ excluded from tsconfig.build.json
+      - Never add @nestjs/* packages at major 12 (pure ESM, incompatible with
+        this NestJS 11 + CommonJS setup)
+      - Tools are BLOCKED for .env* paths — never read or write them
+    tdd: true
+    test_command: "pnpm test"
+  verify:
+    test_command: "pnpm test"
+    e2e_test_command: "pnpm test:e2e"
+    build_command: "pnpm build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
