@@ -32,10 +32,10 @@ Cinco reglas que no se negocian, porque cada una previene una forma conocida de 
 **Terminado cuando:** la URL de producción responde `200` en `/health`.
 
 ```
-chore: scaffold nestjs project with typescript
-chore: add eslint flat config
-feat: add health endpoint
-chore: configure render deployment
+chore(config): scaffold nestjs project with typescript
+chore(config): add eslint flat config
+feat(health): add health endpoint
+chore(config): configure render deployment
 ```
 
 ---
@@ -53,10 +53,10 @@ chore: configure render deployment
 **Terminado cuando:** `prisma migrate deploy` corre limpio en producción y el catálogo está cargado.
 
 ```
-feat: add prisma schema with user build and skill models
-feat: add battle and friendship models
-feat: add prisma service module
-feat: seed skill catalog
+feat(prisma): add prisma schema with user build and skill models
+feat(prisma): add battle and friendship models
+feat(prisma): add prisma service module
+feat(skill): seed skill catalog
 ```
 
 **Cuidado acá:** el schema va completo desde el principio. Migrar en diez pasos porque el modelo se fue descubriendo genera un historial de migraciones ilegible, y eso sí se nota en el oral.
@@ -81,12 +81,12 @@ feat: seed skill catalog
 **Terminado cuando:** ninguna ruta responde sin token salvo las marcadas `@Public()`, y el test de autenticación pasa.
 
 ```
-feat: add user registration with bcrypt hashing
-feat: implement jwt access and refresh tokens
-feat: add global jwt auth guard with public decorator
-feat: apply helmet cors and rate limiting
-feat: serve api reference with scalar
-test: cover authentication flow end to end
+feat(auth): add user registration with bcrypt hashing
+feat(auth): implement jwt access and refresh tokens
+feat(auth): add global jwt auth guard with public decorator
+feat(auth): apply helmet cors and rate limiting
+feat(auth): serve api reference with scalar
+test(auth): cover authentication flow end to end
 ```
 
 **El guard va global, no por controlador.** Aplicarlo ruta por ruta significa que la seguridad depende de que nadie se olvide. Global con excepciones explícitas invierte la carga: olvidarse deja la ruta protegida, no abierta.
@@ -109,13 +109,13 @@ test: cover authentication flow end to end
 **Terminado cuando:** el motor no importa nada de `@nestjs`, y los tests cubren cada rama de resolución.
 
 ```
-feat: add combat domain types
-feat: add injectable random source
-feat: implement physical attack resolution
-feat: implement magic attack with saving throw
-feat: add advantage and disadvantage rolls
-feat: add condition application and expiration
-test: cover combat engine resolution branches
+feat(combat): add combat domain types
+feat(combat): add injectable random source
+feat(combat): implement physical attack resolution
+feat(combat): implement magic attack with saving throw
+feat(combat): add advantage and disadvantage rolls
+feat(combat): add condition application and expiration
+test(combat): cover combat engine resolution branches
 ```
 
 **Esta fase se trabaja con SDD.** La rama toma el nombre de la change —`feat/add-combat-engine`— y los artefactos de propuesta, especificación y tareas se commitean en esa misma rama, con tipo `docs`, **antes** de la implementación. El detalle está en [`git-workflow.md`](./git-workflow.md#relación-con-las-fases-y-con-sdd).
@@ -139,12 +139,12 @@ Es la fase donde SDD paga: las reglas de resolución son muchas y se contradicen
 **Terminado cuando:** una build inválida se rechaza con `400` diciendo qué regla incumplió, y pedir la build de otro usuario devuelve `404` aunque exista.
 
 ```
-feat: expose skill catalog endpoint
-feat: add build crud scoped to authenticated owner
-feat: validate attribute point budget with escalating cost
-feat: validate skill kit budget slots and requirements
-test: cover build validation rules
-test: cover owner scoped access on builds
+feat(skill): expose skill catalog endpoint
+feat(build): add build crud scoped to authenticated owner
+feat(build): validate attribute point budget with escalating cost
+feat(build): validate skill kit budget slots and requirements
+test(build): cover build validation rules
+test(build): cover owner scoped access on builds
 ```
 
 **Acá es donde se prueba la autorización, no en la fase 2.** El guard de autenticación ya está desde antes; lo que se estrena en esta fase es que un usuario autenticado **no pueda tocar lo ajeno**. El test que lo demuestra es un usuario pidiendo el recurso de otro y recibiendo `404`.
@@ -165,13 +165,13 @@ test: cover owner scoped access on builds
 **Terminado cuando:** el ciclo completo funciona en las dos direcciones, una batalla aceptada tiene sus combatientes congelados, y quien envió un desafío no puede aceptárselo a sí mismo.
 
 ```
-feat: add friendship request lifecycle
-feat: prevent duplicate and self friendship requests
-feat: add battle challenge lifecycle
-feat: restrict lifecycle transitions to the entitled participant
-feat: freeze combatant stats when battle is accepted
-feat: mark battles between friends as unranked
-test: cover forbidden lifecycle transitions
+feat(friendship): add friendship request lifecycle
+feat(friendship): prevent duplicate and self friendship requests
+feat(battle): add battle challenge lifecycle
+feat(battle): restrict lifecycle transitions to the entitled participant
+feat(battle): freeze combatant stats when battle is accepted
+feat(battle): mark battles between friends as unranked
+test(battle): cover forbidden lifecycle transitions
 ```
 
 **La trampa de esta fase:** validar el estado y creer que alcanza. Que un desafío esté `PENDING` no dice **quién** puede aceptarlo. Sin esa segunda comprobación, el desafiante se acepta su propio desafío y elige cuándo empieza el combate.
@@ -194,12 +194,12 @@ test: cover forbidden lifecycle transitions
 **Terminado cuando:** dos clientes pelean de punta a punta, y desconectar y reconectar a uno recupera el combate en el punto exacto.
 
 ```
-feat: add websocket gateway with handshake authentication
-feat: add battle rooms and join event
-feat: resolve declared actions through combat engine
-feat: add reaction window with timeout
-feat: persist resolved turns
-feat: restore battle state on reconnect
+feat(ws): add websocket gateway with handshake authentication
+feat(ws): add battle rooms and join event
+feat(ws): resolve declared actions through combat engine
+feat(ws): add reaction window with timeout
+feat(ws): persist resolved turns
+feat(ws): restore battle state on reconnect
 ```
 
 **Esta fase también se trabaja con SDD**, con la rama nombrada por la change —`feat/add-realtime-battle`— y los artefactos commiteados antes de la implementación, igual que en la fase 3. Acá el motivo es distinto: el problema no son las reglas sino el **orden de los eventos**, y una ventana de reacción mal especificada se descubre tarde y en vivo.
@@ -219,10 +219,10 @@ feat: restore battle state on reconnect
 **Terminado cuando:** cada punto de la sección 9 de la consigna está tildado contra el deploy en producción, no contra el entorno local.
 
 ```
-feat: update rating when ranked battle ends
-feat: add global leaderboard endpoint
-docs: document endpoints and websocket events in readme
-chore: tune combat balance values
+feat(rating): update rating when ranked battle ends
+feat(rating): add global leaderboard endpoint
+docs(readme): document endpoints and websocket events in readme
+chore(combat): tune combat balance values
 ```
 
 ---
