@@ -118,6 +118,10 @@ feat: add condition application and expiration
 test: cover combat engine resolution branches
 ```
 
+**Esta fase se trabaja con SDD.** La rama toma el nombre de la change —`feat/add-combat-engine`— y los artefactos de propuesta, especificación y tareas se commitean en esa misma rama, con tipo `docs`, **antes** de la implementación. El detalle está en [`git-workflow.md`](./git-workflow.md#relación-con-las-fases-y-con-sdd).
+
+Es la fase donde SDD paga: las reglas de resolución son muchas y se contradicen entre sí con facilidad. Escribirlas como especificación antes de codificarlas evita descubrir a mitad de camino que el crítico y la ventaja se pisan.
+
 **Esta es la fase que hay que poder explicar en el oral.** Un motor puro y determinista es lo que separa un proyecto que funciona de uno que se entiende.
 
 ---
@@ -197,6 +201,8 @@ feat: add reaction window with timeout
 feat: persist resolved turns
 feat: restore battle state on reconnect
 ```
+
+**Esta fase también se trabaja con SDD**, con la rama nombrada por la change —`feat/add-realtime-battle`— y los artefactos commiteados antes de la implementación, igual que en la fase 3. Acá el motivo es distinto: el problema no son las reglas sino el **orden de los eventos**, y una ventana de reacción mal especificada se descubre tarde y en vivo.
 
 ---
 
