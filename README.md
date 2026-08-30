@@ -82,9 +82,9 @@ Están declaradas sin valores en `.env.example`. `.env` nunca se commitea.
 | `JWT_ACCESS_EXPIRES_IN` | Vigencia del access token |
 | `JWT_REFRESH_SECRET` | Secreto de firma del refresh token |
 | `JWT_REFRESH_EXPIRES_IN` | Vigencia del refresh token |
-| `CORS_ORIGIN` | Origen permitido por CORS |
-| `THROTTLE_TTL` | Ventana del limitador de peticiones, en milisegundos |
-| `THROTTLE_LIMIT` | Peticiones permitidas por ventana |
+| `CORS_ORIGIN` | Orígenes permitidos, separados por coma. Si está vacía, CORS queda cerrado |
+| `THROTTLE_TTL` | Ventana del limitador de peticiones, en milisegundos. Por defecto `60000` |
+| `THROTTLE_LIMIT` | Peticiones permitidas por ventana. Por defecto `100` |
 
 ---
 
@@ -96,7 +96,7 @@ pnpm build          # genera el cliente de Prisma y compila a dist
 pnpm start:prod     # ejecución de la compilación
 pnpm lint           # eslint con corrección automática
 pnpm test           # tests unitarios
-pnpm test:e2e       # tests de extremo a extremo
+pnpm test:e2e       # tests de extremo a extremo (requieren base de datos)
 
 pnpm db:migrate     # crea y aplica una migración en desarrollo
 pnpm db:deploy      # aplica migraciones pendientes en producción
@@ -128,6 +128,23 @@ Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la
 | `GET/POST/PATCH/DELETE` | `/friends` | Solicitudes y lista de amigos | Pendiente |
 | `GET/POST/PATCH/DELETE` | `/battles` | Desafíos, combates y replays | Pendiente |
 | `GET` | `/leaderboard` | Ranking global | Pendiente |
+
+---
+
+## Seguridad
+
+| Medida | Cómo está aplicada |
+| --- | --- |
+| Contraseñas | `bcrypt` con costo 12. Nunca se devuelven ni se registran |
+| Autenticación | Access token de 15 minutos, refresh de 7 días con rotación |
+| Refresh token | Se guarda solo su huella SHA-256; `logout` la borra |
+| Autorización | `JwtAuthGuard` **global**: toda ruta exige token salvo las marcadas `@Public()` |
+| Validación | `ValidationPipe` global con `whitelist`, `forbidNonWhitelisted` y `transform` |
+| Cabeceras | `helmet`, con una CSP propia para la referencia de Scalar |
+| CORS | Declarado por origen. Sin `CORS_ORIGIN`, ningún origen cruzado pasa |
+| Fuerza bruta | `@nestjs/throttler` global, y 5 intentos por minuto en `register`, `login` y `refresh` |
+
+El acceso a recursos ajenos responde `404` y no `403`, para no confirmar qué existe.
 
 ---
 
