@@ -19,13 +19,13 @@ Esa es la premisa del proyecto: *si el cliente puede calcularlo, el cliente pued
 
 ## Estado
 
-En desarrollo. La API está desplegada y respondiendo, con el modelo de datos migrado y el catálogo de habilidades cargado.
+En desarrollo. La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado y la autenticación funcionando de punta a punta.
 
 | Fase | Estado |
 | --- | --- |
 | 0 — Fundación | Completa |
 | 1 — Persistencia | Completa |
-| 2 — Autenticación y seguridad | Pendiente |
+| 2 — Autenticación y seguridad | En curso |
 | 3 — Motor de combate | Pendiente |
 | 4 — Builds y catálogo | Pendiente |
 | 5 — Social y desafíos | Pendiente |
@@ -111,16 +111,18 @@ pnpm db:studio      # explorador visual de la base
 
 ## Endpoints
 
-La referencia interactiva se sirve en `/reference`, generada con Scalar a partir de OpenAPI.
+La referencia interactiva se sirve en [`/reference`](https://build-arena-api.onrender.com/reference), generada con Scalar a partir del documento OpenAPI que `@nestjs/swagger` arma con los decoradores de los DTOs y los controllers.
+
+Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la referencia se prueban con el botón de autenticación, pegando el `accessToken` que devuelve `/auth/login`.
 
 | Método | Ruta | Descripción | Estado |
 | --- | --- | --- | --- |
 | `GET` | `/health` | Estado, versión y tiempo de actividad | Disponible |
-| `POST` | `/auth/register` | Crea un usuario | Pendiente |
-| `POST` | `/auth/login` | Devuelve access y refresh token | Pendiente |
-| `POST` | `/auth/refresh` | Renueva el access token | Pendiente |
-| `POST` | `/auth/logout` | Invalida el refresh token | Pendiente |
-| `GET` | `/auth/me` | Perfil del usuario autenticado | Pendiente |
+| `POST` | `/auth/register` | Crea un usuario | Disponible |
+| `POST` | `/auth/login` | Devuelve access y refresh token | Disponible |
+| `POST` | `/auth/refresh` | Rota el refresh token y emite un par nuevo | Disponible |
+| `POST` | `/auth/logout` | Invalida el refresh token guardado | Disponible |
+| `GET` | `/auth/me` | Perfil del usuario autenticado | Disponible |
 | `GET` | `/skills` | Catálogo de habilidades | Pendiente |
 | `GET/POST/PATCH/DELETE` | `/builds` | Gestión de builds propias | Pendiente |
 | `GET/POST/PATCH/DELETE` | `/friends` | Solicitudes y lista de amigos | Pendiente |
