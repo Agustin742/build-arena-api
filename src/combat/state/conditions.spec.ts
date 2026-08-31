@@ -5,9 +5,9 @@ import {
   isStunned,
   isWeakened,
 } from './conditions';
-import { resolvePhysicalAttack } from './physical-attack';
-import type { RandomSource } from './random-source';
-import type { Combatant, CombatSkill } from './types';
+import { resolvePhysicalAttack } from '../attack/physical-attack';
+import type { RandomSource } from '../core/random-source';
+import type { Combatant, CombatSkill } from '../types';
 
 const buildCombatant = (overrides: Partial<Combatant> = {}): Combatant => ({
   id: 'combatant-1',

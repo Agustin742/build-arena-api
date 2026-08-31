@@ -1,4 +1,4 @@
-import type { RandomSource } from './random-source';
+import type { RandomSource } from './core/random-source';
 
 export type ConditionType = 'POISONED' | 'STUNNED' | 'WEAKENED';
 export type AttributeKey = 'STRENGTH' | 'MAGIC' | 'DEXTERITY' | 'CONSTITUTION';

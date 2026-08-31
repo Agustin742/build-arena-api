@@ -1,4 +1,4 @@
-import type { ActionResolution, ReactionBehavior } from './types';
+import type { ActionResolution, ReactionBehavior } from '../types';
 
 /**
  * Reaction behavior lives here, in the engine, not in the schema (D5):

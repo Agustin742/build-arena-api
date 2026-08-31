@@ -1,5 +1,5 @@
 import { startRound } from './round';
-import type { Combatant } from './types';
+import type { Combatant } from '../types';
 
 const buildCombatant = (overrides: Partial<Combatant> = {}): Combatant => ({
   id: 'combatant-1',

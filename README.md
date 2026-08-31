@@ -19,14 +19,14 @@ Esa es la premisa del proyecto: *si el cliente puede calcularlo, el cliente pued
 
 ## Estado
 
-En desarrollo. La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado y la autenticación funcionando de punta a punta.
+En desarrollo. La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado, la autenticación funcionando de punta a punta y el motor de combate terminado y cubierto por tests.
 
 | Fase | Estado |
 | --- | --- |
 | 0 — Fundación | Completa |
 | 1 — Persistencia | Completa |
-| 2 — Autenticación y seguridad | En curso |
-| 3 — Motor de combate | Pendiente |
+| 2 — Autenticación y seguridad | Completa |
+| 3 — Motor de combate | Completa |
 | 4 — Builds y catálogo | Pendiente |
 | 5 — Social y desafíos | Pendiente |
 | 6 — Tiempo real | Pendiente |
@@ -131,6 +131,125 @@ Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la
 
 ---
 
+## Motor de combate
+
+El corazón del proyecto. Vive en [`src/combat/`](./src/combat) y es **TypeScript puro**:
+no importa nada de `@nestjs`, no tiene `@Injectable()` y no expone ningún módulo del
+framework. Se usa como una función: recibe estado, devuelve estado nuevo más los eventos
+que ocurrieron, y nunca muta lo que recibe.
+
+Con la fuente de aleatoriedad fija, las mismas entradas producen **siempre** la misma
+salida. Un combate se puede testear, reproducir y auditar.
+
+> Guía completa y camino de lectura archivo por archivo:
+> [`docs/design/combat-engine.md`](./docs/design/combat-engine.md)
+
+### Cómo se resuelve un turno
+
+El motor resuelve la acción y la reacción **juntas**, en un orden fijo. El orden es el
+motor: mover cualquier paso cambia el resultado de todos los combates.
+
+```mermaid
+flowchart TD
+    A["Acción declarada + reacción opcional"] --> B["1 · Modificadores de defensa<br/>DODGE · ARCANE_WARD"]
+    B --> C["2 · Tirada de la acción<br/>física contra Clase de Armadura<br/>mágica por salvación"]
+    C --> D["3 · Calcular daño<br/>el crítico duplica los dados"]
+    D --> E["4 · Mitigación<br/>WEAKENED → salvación → PARRY → BRACE"]
+    E --> F["5 · Restar puntos de vida"]
+    F --> G{"6 · ¿Cayó a 0?"}
+    G -- Sí --> H["Fin del combate<br/>sin contraataque y sin condición"]
+    G -- No --> I["7 · Contraataque<br/>COUNTER si impactó · RIPOSTE si falló"]
+    I --> J["8 · Aplicar condiciones<br/>PASO TERMINAL"]
+    J --> K["9 · Emitir 1 o 2 registros de turno"]
+```
+
+El **paso 6** es explícito: un defensor que cae no contraataca. El **paso 8 es terminal**,
+y de eso depende que una condición aplicada este turno no afecte este turno; hay un test
+que se pone rojo si alguien inserta una tirada después.
+
+### Resolución de un ataque
+
+| | Físico | Mágico |
+| --- | --- | --- |
+| Tirada | `d20 + modificador(atributo)` contra la Clase de Armadura | El defensor tira `d20 + modificador(constitución)` |
+| Objetivo | Clase de Armadura del rival | `8 + modificador(magia)` del atacante |
+| Resultado | Binario: impacta o falla | Graduado: superarla reduce el daño a la mitad |
+| Daño | `dados + modificador(atributo)` | `dados`, sin modificador |
+| Crítico | 20 natural: duplica los **dados**, no el modificador | No existe |
+
+Un **20 natural siempre impacta**, un **1 natural siempre falla**, y las dos cosas se
+deciden antes de mirar la Clase de Armadura. Por eso `DODGE` no puede anular un crítico.
+
+El atributo que resuelve es el que **desbloquea** la habilidad: `PRECISE_SHOT` exige
+Destreza 13, así que tira y daña con Destreza.
+
+**Ventaja y desventaja** tiran 2d20 y toman el alto o el bajo. No se acumulan, y se
+cancelan mutuamente a una tirada limpia. Como el 20 natural es crítico, la ventaja sube
+la tasa de críticos del 5% a ≈9.75%: es una consecuencia buscada y está documentada.
+
+### Condiciones
+
+Tres condiciones sobre tres ejes distintos, para que ninguna se pise con otra.
+
+| Condición | Eje | Efecto |
+| --- | --- | --- |
+| `POISONED` | Puntería | Desventaja en tus ataques **y** −2 a la dificultad de salvación que imponés con magia |
+| `STUNNED` | Tempo | Perdés tu acción **y** tu reacción esa ronda |
+| `WEAKENED` | Daño | El daño que hacés se reduce a la mitad, redondeando abajo |
+
+- Una condición aplicada a mitad de ronda **no afecta esa ronda**.
+- Reaplicarla **refresca** la duración: no se apilan.
+- El daño mágico aplica su condición **solo si la salvación falla**.
+- El tick de duración corre solo para el combatiente que actúa: tres rondas son **tus**
+  tres próximos turnos.
+
+### Reacciones
+
+El comportamiento vive en una tabla tipada del motor; los números vienen de la fila de
+`Skill` en la base. Una reacción nueva del mismo tipo no necesita migración.
+
+| Reacción | Responde a | Efecto |
+| --- | --- | --- |
+| `BRACE` | cualquiera | Reduce el daño en `modificador(constitución)`, reducción mínima 1 |
+| `PARRY` | física | Reduce el daño a la mitad |
+| `DODGE` | física | `+modificador(destreza)` a la Clase de Armadura contra ese ataque |
+| `ARCANE_WARD` | mágica | `+modificador(magia)` a la tirada de salvación |
+| `COUNTER` | cualquiera | Come el daño entero y devuelve `1d6 + modificador(fuerza)` si impactaron |
+| `RIPOSTE` | física | Solo si **fallan**: devuelve `1d8 + modificador(destreza)` y aplica `WEAKENED` |
+
+`DODGE` es a lo físico lo que `ARCANE_WARD` es a lo mágico: mejoran tu número de defensa
+**antes** de la tirada. `BRACE` y `PARRY` reducen daño **después**. `COUNTER` y `RIPOSTE`
+castigan, y ninguno tira ataque propio.
+
+### Por qué la aleatoriedad está inyectada
+
+```ts
+export interface RandomSource {
+  rollD20: () => number;
+  rollDice: (notation: string) => number;
+}
+```
+
+Con `Math.random()` incrustado en la resolución no se puede forzar un 20 natural ni
+reproducir un combate que salió mal. Habría que tirar mil veces y confiar en la
+estadística, que no es un test.
+
+La interfaz tampoco sabe qué es la ventaja: eso se compone afuera, llamando `rollD20()`
+dos veces. `SystemRandomSource` corre en producción y `SequenceRandomSource` reproduce
+un guion fijo, que sirve tanto para los tests como para repetir un combate registrado.
+
+### Garantías verificables
+
+No son promesas, son comandos:
+
+```bash
+rg "@nestjs|@Injectable" src/combat/   # sin coincidencias: el motor es puro
+rg "Math.floor" src/combat/           # solo en core/arithmetic.ts y core/random-source.ts
+pnpm test                              # 141 tests, 15 suites
+```
+
+---
+
 ## Seguridad
 
 | Medida | Cómo está aplicada |
@@ -155,6 +274,7 @@ El acceso a recursos ajenos responde `404` y no `403`, para no confirmar qué ex
 | [`docs/brief`](./docs/brief/proyecto-4-integrartec-2026.md) | Consigna original de la cátedra |
 | [`docs/design/overview.md`](./docs/design/overview.md) | Diseño general, decisiones y modelo de datos |
 | [`docs/design/architecture.md`](./docs/design/architecture.md) | Capas, responsabilidades y qué se comparte |
+| [`docs/design/combat-engine.md`](./docs/design/combat-engine.md) | Motor de combate: guía de lectura, reglas y tubería |
 | [`docs/design/implementation-plan.md`](./docs/design/implementation-plan.md) | Plan de fases y calendario |
 | [`docs/design/git-workflow.md`](./docs/design/git-workflow.md) | Ramas, commits e integración |
 

@@ -1,8 +1,8 @@
-import { modifier } from './arithmetic';
+import { modifier } from '../core/arithmetic';
 import { rollDamage } from './damage';
-import { rollD20With } from './d20';
-import type { RandomSource } from './random-source';
-import type { Combatant, CombatSkill } from './types';
+import { rollD20With } from '../core/d20';
+import type { RandomSource } from '../core/random-source';
+import type { Combatant, CombatSkill } from '../types';
 
 export type MagicAttackInput = {
   readonly attacker: Combatant;
