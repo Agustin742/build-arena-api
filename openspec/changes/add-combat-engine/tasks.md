@@ -10,7 +10,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 |---|---|---|---|---|---|---|---|
 | 1 | `feat/add-combat-engine` | ~130 (actual 330) | ~220 (actual 282) | 0 | ~350 (**actual 612**) | **No — 612 > 400** | **Yes, retroactively — see apply-progress** |
 | 2a/2b | `feat/combat-physical-attack` then `feat/combat-magic-attack` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
-| 3 | `feat/combat-conditions-reactions` | ~140 | ~240 | 0 | ~380 | Yes | No |
+| 3a | `feat/combat-conditions-reactions` | ~70 (actual 134: conditions.ts 71 + reactions.ts 63) | ~70 (actual 288: conditions.spec.ts 196 + reactions.spec.ts 92) | 0 | ~140 (**actual 424**) | **No — 424 > 400** | **Yes, retroactively — see apply-progress; needs split into 3a/3b** |
 | 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
 | **Total** | | **~530** | **~940** | **~10** | **~1480** | — | — |
 
@@ -170,26 +170,56 @@ changed lines against the 400-line budget — under budget, no split needed, no 
 exception required. `gentle-ai sdd-attempt settle` returned `state: complete` (no
 `maintainer_decision` block, unlike slices 1 and 2a).
 
-## Slice 3 — `feat/combat-conditions-reactions` (base: `feat/combat-magic-attack`)
+## Slice 3a — `feat/combat-conditions-reactions` (base: `feat/combat-magic-attack`)
 
-- [ ] 3.1 Test: `src/combat/conditions.spec.ts` — POISONED: "A poisoned attacker rolls with
+Split from the original slice 3 at the natural conditions/round seam: conditions plus the
+reaction table alone already measured 424 changed lines against the 400 budget — over before
+`round.ts` (tasks 3.5-3.8) started. Tasks 3.5 to 3.8 moved to slice 3b below. Decision
+returned to the user, not made here, per the prompt's instruction to stop at this boundary.
+
+**BUDGET STOP at the conditions+reactions/round boundary (see apply-progress).** Conditions
+(3.1-3.2) and the reaction table (3.3-3.4), plus a partial `index.ts` export so the checkpoint
+stays independently landable, are complete and committed at 424 changed lines against the
+400-line budget. `round.ts` (the round-start tick, decision C/F, and the MIND_SPIKE
+regression pin) NOT started.
+
+- [x] 3.1 Test: `src/combat/conditions.spec.ts` — POISONED: "A poisoned attacker rolls with
       disadvantage" (composed with slice-1 `d20.ts` + slice-2 `physical-attack.ts`), "The -2
       never reaches a physical attack" (R1, Decision G; magic-difficulty math already owned by
       2.5); STUNNED: `isStunned` predicate (R2, Decision B — full skip-turn scenarios deferred to
       4.5); WEAKENED: `isWeakened` predicate (R3; arithmetic owned by 2.1); R16: "A near-expiring
       condition is refreshed, not stacked".
       commit: `test(combat): cover condition predicates and refresh on reapplication`
-- [ ] 3.2 Impl: `src/combat/conditions.ts` — `attackBiasFor`, `isStunned`, `isWeakened`,
+- [x] 3.2 Impl: `src/combat/conditions.ts` — `attackBiasFor`, `isStunned`, `isWeakened`,
       `applyCondition` (refresh, not stack), failed-save condition helper. R1, R2, R3, R16;
       Decision B, Decision G.
       commit: `feat(combat): add condition predicates and refresh application`
-- [ ] 3.3 Test: `src/combat/reactions.spec.ts` — Requirement "Reaction Applicability": "DODGE
+      Also added `conditionFromSkill` as the pure skill-to-condition translator — the
+      "failed-save condition helper". It does NOT gate on hit/savePassed itself; that gate is a
+      pipeline concern composed in `turn.ts` (slice 4, task 4.4/R13), matching the split already
+      established for `reduceDamage`'s `savePassed` flag in slice 2.
+- [x] 3.3 Test: `src/combat/reactions.spec.ts` — Requirement "Reaction Applicability": "DODGE
       against a magic action does not apply" (R4), plus applicability assertions for BRACE/
       PARRY/ARCANE_WARD/COUNTER/RIPOSTE against both an applicable and a non-applicable action
       type (proposal Success Criteria), and `REACTION_TABLE` shape correctness for R5-R10.
       commit: `test(combat): cover reaction table applicability by action type`
-- [ ] 3.4 Impl: `src/combat/reactions.ts` — `REACTION_TABLE`, `isApplicable`. R4-R10; Decision D5.
+- [x] 3.4 Impl: `src/combat/reactions.ts` — `REACTION_TABLE`, `isApplicable`. R4-R10; Decision D5.
       commit: `feat(combat): add typed reaction table with applicability`
+      Also extended `src/combat/index.ts` with the `conditions.ts`/`reactions.ts` exports (not a
+      separate task in the original plan, mirroring slice 2a's precedent) so this checkpoint
+      compiles and is independently landable as PR 3a.
+      commit: `feat(combat): export conditions and reactions from index`
+- [x] 3.x Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 3a. No commit.
+      RESULT: `pnpm test` 13 suites, 110/110 tests pass. `pnpm lint` clean, no fixes needed.
+      `pnpm build` exit 0, `dist/combat/conditions.js` and `dist/combat/reactions.js` present, no
+      `dist/src/` nesting. `rg "@nestjs" src/combat/` no matches. `rg "Math\.floor" src/combat/`
+      confined to `arithmetic.ts` and `random-source.ts` (D3 invariant holds).
+      **MEASURED, NOT ESTIMATED**: `git diff --shortstat main..HEAD` (base is `main`, since
+      slices 1/2a/2b already merged) = 424 insertions, 0 deletions, 5 files — over the 400-line
+      budget, decision returned to the user per the prompt's stop instruction.
+
+## Slice 3b — `feat/combat-round-tick` (base: `feat/combat-conditions-reactions`) — NOT STARTED
+
 - [ ] 3.5 Test: `src/combat/round.spec.ts` — Requirement "Round Start": "The tick reaches the
       acting combatant's conditions only", "A duration counts the bearer's own turns" (Decision
       F); "An active condition ticks down"; "The acting combatant's reaction recharges" (Decision
@@ -201,9 +231,10 @@ exception required. `gentle-ai sdd-attempt settle` returned `state: complete` (n
 - [ ] 3.6 Impl: `src/combat/round.ts` — `startRound`: remove expired → decrement survivors →
       recharge reaction, scoped to the acting combatant only. Decision C, Decision F.
       commit: `feat(combat): add pure round start state transition`
-- [ ] 3.7 Impl: `src/combat/index.ts` — extend with slice-3 surface. No dedicated test (barrel).
+- [ ] 3.7 Impl: `src/combat/index.ts` — extend with the `round.ts` export, completing the
+      slice-3 surface. No dedicated test (barrel).
       commit: `feat(combat): export slice three public surface from index`
-- [ ] 3.8 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 3. No commit.
+- [ ] 3.8 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 3b. No commit.
 
 ## Slice 4 — `feat/combat-turn-pipeline` (base: `feat/combat-conditions-reactions`)
 
