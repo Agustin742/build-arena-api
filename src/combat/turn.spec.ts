@@ -482,3 +482,126 @@ describe('resolveTurn — steps 6 to 8', () => {
     expect(result.defender.conditions).toEqual([]);
   });
 });
+
+describe('resolveTurn — step 9 emission, STUNNED skipping, and bias wiring', () => {
+  it('step 9: exactly two turn results are always emitted, even with no reaction declared', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(15),
+      rollDice: jest.fn().mockReturnValue(5),
+    };
+    const actor = buildCombatant({ id: 'actor-1', strength: 12 });
+    const defender = buildCombatant({ id: 'defender-1', armorClass: 10 });
+    const input = buildInput({ actor, defender, reaction: null, random });
+
+    const result = resolveTurn(input);
+
+    expect(result.turns).toHaveLength(2);
+    expect(result.turns[0].kind).toBe('ACTION');
+    expect(result.turns[1].kind).toBe('REACTION');
+    expect(result.turns[1].attackRoll).toBeNull();
+    expect(result.turns[1].targetValue).toBeNull();
+    expect(result.turns[1].hit).toBeNull();
+    expect(result.turns[1].skillCode).toBeNull();
+  });
+
+  it("a stunned actor's action is recorded as skipped, not empty (R2, Decision B)", () => {
+    const random: RandomSource = { rollD20: jest.fn(), rollDice: jest.fn() };
+    const actor = buildCombatant({
+      id: 'actor-1',
+      conditions: [{ type: 'STUNNED', roundsRemaining: 1 }],
+    });
+    const defender = buildCombatant({ id: 'defender-1' });
+    const input = buildInput({ actor, defender, reaction: null, random });
+
+    const result = resolveTurn(input);
+
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0]).toEqual({
+      round: 1,
+      sequence: 1,
+      actorId: 'actor-1',
+      kind: 'ACTION',
+      skillCode: null,
+      attackRoll: null,
+      targetValue: null,
+      hit: null,
+      critical: false,
+      damage: 0,
+      skipped: true,
+    });
+    expect(result.events).toContainEqual({
+      type: 'TURN_SKIPPED',
+      combatantId: 'actor-1',
+      reason: 'STUNNED',
+    });
+    expect(random.rollD20).not.toHaveBeenCalled();
+    expect(random.rollDice).not.toHaveBeenCalled();
+  });
+
+  it('a stunned defender cannot use a reaction: PARRY is ignored and its mitigation does not apply', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(15),
+      rollDice: jest.fn().mockReturnValue(6), // rawDamage 6 + mod(0) = 6
+    };
+    const actor = buildCombatant({ id: 'actor-1', strength: 10 });
+    const defender = buildCombatant({
+      id: 'defender-1',
+      armorClass: 10,
+      currentHp: 30,
+      conditions: [{ type: 'STUNNED', roundsRemaining: 1 }],
+    });
+    const parry: CombatSkill = {
+      code: 'PARRY',
+      type: 'REACTION',
+      requiredAttribute: 'STRENGTH',
+      damageDice: null,
+      appliesCondition: null,
+      conditionRounds: null,
+    };
+    const input = buildInput({
+      actor,
+      defender,
+      reaction: { actorId: 'defender-1', skill: parry },
+      random,
+    });
+
+    const result = resolveTurn(input);
+
+    // PARRY would have halved 6 to 3; STUNNED suppresses it, so the full
+    // 6 lands instead.
+    expect(result.turns[0].damage).toBe(6);
+    expect(result.defender.currentHp).toBe(24);
+    expect(result.turns[1].skipped).toBe(true);
+    expect(result.events).toContainEqual({
+      type: 'REACTION_IGNORED',
+      combatantId: 'defender-1',
+      skillCode: 'PARRY',
+      reason: 'STUNNED',
+    });
+  });
+
+  it('disadvantage can suppress a critical: a discarded natural 20 never counts (bias + critical wiring)', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValueOnce(20).mockReturnValueOnce(5),
+      rollDice: jest.fn(),
+    };
+    const actor = buildCombatant({
+      id: 'actor-1',
+      strength: 10,
+      conditions: [{ type: 'POISONED', roundsRemaining: 2 }], // disadvantage
+    });
+    const defender = buildCombatant({ id: 'defender-1', armorClass: 18 });
+    const input = buildInput({ actor, defender, random });
+
+    const result = resolveTurn(input);
+
+    // DISADVANTAGE keeps the lower of the two rolls (5), so the drawn
+    // natural 20 is discarded and never triggers a critical — bias can
+    // only ever pull toward what it favors, never invent a result the
+    // kept roll did not produce.
+    expect(random.rollD20).toHaveBeenCalledTimes(2);
+    expect(result.turns[0].attackRoll).toBe(5);
+    expect(result.turns[0].critical).toBe(false);
+    expect(result.turns[0].hit).toBe(false);
+  });
+});
