@@ -9,7 +9,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 | Slice | Branch | Code (est.) | Tests (est.) | Docs (est.) | Total | Fits 400? | Decision needed before apply |
 |---|---|---|---|---|---|---|---|
 | 1 | `feat/add-combat-engine` | ~130 (actual 330) | ~220 (actual 282) | 0 | ~350 (**actual 612**) | **No — 612 > 400** | **Yes, retroactively — see apply-progress** |
-| 2 | `feat/combat-attack-resolution` | ~150 | ~240 | ~10 | ~400 | Yes (at budget) | No |
+| 2 | `feat/combat-attack-resolution` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
 | 3 | `feat/combat-conditions-reactions` | ~140 | ~240 | 0 | ~380 | Yes | No |
 | 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
 | **Total** | | **~530** | **~940** | **~10** | **~1480** | — | — |
@@ -83,7 +83,16 @@ Merge order to `main` is 1 → 2 → 3 → 4; each branch is cut from the previo
 
 ## Slice 2 — `feat/combat-attack-resolution` (base: `feat/add-combat-engine`)
 
-- [ ] 2.1 Test: `src/combat/damage.spec.ts` — critical doubling (combat-resolution "Natural 20 is
+**BUDGET STOP at the physical/magic boundary (see apply-progress).** Physical side
+(2.1-2.4, plus a partial `index.ts` export so the checkpoint stays independently
+landable) is complete and committed at 446 changed lines against the 400-line
+budget — already over before the magic side (2.5-2.7) or the final `index.ts`/
+verify tasks (2.8-2.9) started. Magic side NOT started. This slice needs a
+retroactive split into 2a (physical, this branch, done) and 2b (magic +
+overview.md docs, new branch based on 2a). Decision returned to the user, not
+made here, per the tasks.md instruction to stop at this boundary.
+
+- [x] 2.1 Test: `src/combat/damage.spec.ts` — critical doubling (combat-resolution "Natural 20 is
       an automatic critical hit", R15/D2); WEAKENED halving (combat-conditions "A weakened
       attacker deals half damage", R3); save-passed halving (combat-resolution "Successful save
       halves damage, rounding down"); PARRY halving + WEAKENED+PARRY stacking (combat-reactions
@@ -91,17 +100,28 @@ Merge order to `main` is 1 → 2 → 3 → 4; each branch is cut from the previo
       R6); BRACE flat reduction + floor of 1 (combat-reactions "BRACE mitigates a hit", "BRACE
       never reduces by less than 1", R5); fixed reduction order (D4).
       commit: `test(combat): cover critical doubling and damage reduction order`
-- [ ] 2.2 Impl: `src/combat/damage.ts` — `rollDamage` (two `rollDice` calls on crit), ordered
+- [x] 2.2 Impl: `src/combat/damage.ts` — `rollDamage` (two `rollDice` calls on crit), ordered
       `reduceDamage` chain (WEAKENED → save → PARRY → BRACE → clamp). R3, R5, R6, R15; D2, D4.
       commit: `feat(combat): add damage rolling and ordered reduction chain`
-- [ ] 2.3 Test: `src/combat/physical-attack.spec.ts` — Requirement "Physical Attack Resolution":
+      **DEVIATION FROM DESIGN.MD (spec wins)**: design.md's inline `reduceDamage` snippet computes
+      `Math.max(minimum, value - modifier(...))`, which floors the *resulting damage* at 1. The
+      combat-reactions spec scenario "BRACE never reduces by less than 1" (constitution mod -1,
+      raw 4 -> mitigated 3) only holds if the *reduction itself* is floored at 1
+      (`reduction = Math.max(1, modifier(...))`, `value -= reduction`) — the design formula gives
+      5, not 3, for that scenario. Implemented per spec.md, not per design.md's snippet.
+- [x] 2.3 Test: `src/combat/physical-attack.spec.ts` — Requirement "Physical Attack Resolution":
       "Hit with POWER_STRIKE", "Miss with POWER_STRIKE", "Natural 20 is an automatic critical
       hit", "Natural 1 is an automatic miss" (R15, Decision E); Requirement "Resolving Attribute":
       "PRECISE_SHOT resolves with dexterity, not strength" (R14).
       commit: `test(combat): cover physical attack hit miss and critical resolution`
-- [ ] 2.4 Impl: `src/combat/physical-attack.ts` — `d20 + mod(resolvingAttribute)` vs armor class,
+- [x] 2.4 Impl: `src/combat/physical-attack.ts` — `d20 + mod(resolvingAttribute)` vs armor class,
       natural 20/1 short-circuit before AC lookup, R14 resolving attribute. R14, R15; Decision E.
       commit: `feat(combat): resolve physical attacks against armor class`
+      Also extended `src/combat/index.ts` with the `damage.ts`/`physical-attack.ts` exports (not a
+      separate task in the original plan) so this physical-side checkpoint compiles and is
+      independently landable as PR 2a, per design.md's "each slice compiles, tests and reverts
+      alone" principle. Plus one follow-up `style(combat): apply prettier formatting to physical
+      attack files` commit for `pnpm lint --fix` line-wrap changes.
 - [ ] 2.5 Test: `src/combat/magic-attack.spec.ts` — Requirement "Magic Attack Resolution": all six
       scenarios ("Failed save takes full damage", "Successful save halves damage, rounding down",
       "Natural 20 save is an ordinary success", "Natural 1 save is an ordinary failure", "A
