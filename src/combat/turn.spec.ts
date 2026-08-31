@@ -751,4 +751,43 @@ describe('resolveTurn — determinism', () => {
     expect(actor.currentHp).toBe(30);
     expect(defender.currentHp).toBe(30);
   });
+
+  it("a condition applied this round never reaches the same round's reaction (R17)", () => {
+    const rollD20 = jest.fn().mockReturnValue(5); // save 5 - 1 = 4, fails against 9
+    const rollDice = jest
+      .fn()
+      .mockReturnValueOnce(8) // VENOM_BOLT 2d6
+      .mockReturnValueOnce(4); // COUNTER 1d6
+    const random: RandomSource = { rollD20, rollDice };
+    const actor = buildCombatant({ id: 'actor-1', magic: 12 }); // mod +1, difficulty 9
+    const defender = buildCombatant({
+      id: 'defender-1',
+      constitution: 8, // mod -1, so the save fails and POISONED lands
+      strength: 14, // mod +2, feeds COUNTER
+      currentHp: 30,
+    });
+    const input = buildInput({
+      round: 3,
+      actor,
+      defender,
+      action: { actorId: 'actor-1', skill: venomBolt },
+      reaction: { actorId: 'defender-1', skill: counter },
+      random,
+    });
+
+    const result = resolveTurn(input);
+
+    // POISONED really landed on the defender during this very round.
+    expect(result.defender.conditions).toContainEqual({
+      type: 'POISONED',
+      roundsRemaining: 3,
+    });
+    // Yet the defender's own reaction in round 3 was never biased by it: the
+    // only d20 rolled all turn was the defender's saving throw, and COUNTER's
+    // damage is the plain 1d6 plus mod(strength 14) = 6.
+    expect(rollD20).toHaveBeenCalledTimes(1);
+    expect(result.turns[1].damage).toBe(6);
+    expect(result.actor.currentHp).toBe(24);
+    expect(result.defender.currentHp).toBe(22);
+  });
 });

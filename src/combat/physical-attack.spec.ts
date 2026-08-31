@@ -138,4 +138,31 @@ describe('resolvePhysicalAttack', () => {
     expect(result.hit).toBe(true);
     expect(result.rawDamage).toBe(5);
   });
+
+  it('advantage keeps the natural 20 and criticals, so advantage can only raise the critical chance', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValueOnce(20).mockReturnValueOnce(5),
+      rollDice: jest.fn().mockReturnValue(4),
+    };
+    const attacker = buildCombatant({ strength: 10 }); // mod 0
+
+    const result = resolvePhysicalAttack({
+      attacker,
+      skill: powerStrike,
+      armorClass: 25,
+      bias: 'ADVANTAGE',
+      random,
+    });
+
+    // The discarded 5 would have missed armor class 25 and never criticalled.
+    // Keeping the higher die is what lifts the critical rate from 5% to about
+    // 9.75%: advantage can raise the critical chance but never lower it.
+    expect(random.rollD20).toHaveBeenCalledTimes(2);
+    expect(result.rolls).toEqual([20, 5]);
+    expect(result.kept).toBe(20);
+    expect(result.hit).toBe(true);
+    expect(result.critical).toBe(true);
+    expect(random.rollDice).toHaveBeenCalledTimes(2);
+    expect(result.rawDamage).toBe(8);
+  });
 });
