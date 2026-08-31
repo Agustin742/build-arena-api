@@ -675,3 +675,80 @@ describe('resolveTurn — step 8 is the pipeline’s terminal roll boundary', ()
     });
   });
 });
+
+describe('resolveTurn — determinism', () => {
+  it('two SequenceRandomSource instances over the same script produce deep-equal results', () => {
+    const actor = buildCombatant({ id: 'actor-1', strength: 14 }); // mod +2
+    const defender = buildCombatant({
+      id: 'defender-1',
+      armorClass: 12,
+      currentHp: 30,
+    });
+    const script = [20, 6, 6]; // natural 20 -> critical, then 1d8 rolled twice
+    const buildScriptedInput = (): TurnInput =>
+      buildInput({
+        actor,
+        defender,
+        reaction: null,
+        random: new SequenceRandomSource(script),
+      });
+
+    const first = resolveTurn(buildScriptedInput());
+    const second = resolveTurn(buildScriptedInput());
+
+    expect(first).toEqual(second);
+    expect(first.turns[0].critical).toBe(true);
+  });
+
+  it('resolveTurn does not mutate its input combatants or declarations', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(15),
+      rollDice: jest.fn().mockReturnValue(5),
+    };
+    const actor = buildCombatant({ id: 'actor-1', strength: 12 });
+    const defender = buildCombatant({
+      id: 'defender-1',
+      armorClass: 10,
+      currentHp: 20,
+    });
+    const input = buildInput({ actor, defender, random });
+    const snapshotActor = { ...actor };
+    const snapshotDefender = { ...defender };
+
+    resolveTurn(input);
+
+    expect(actor).toEqual(snapshotActor);
+    expect(defender).toEqual(snapshotDefender);
+    expect(input.actor).toBe(actor);
+    expect(input.defender).toBe(defender);
+  });
+
+  it('calling resolveTurn twice with independent scripted sources never shares state across calls', () => {
+    const actor = buildCombatant({ id: 'actor-1', strength: 12 });
+    const defender = buildCombatant({
+      id: 'defender-1',
+      armorClass: 10,
+      currentHp: 30,
+    });
+
+    const firstResult = resolveTurn(
+      buildInput({
+        actor,
+        defender,
+        random: new SequenceRandomSource([15, 5]),
+      }),
+    );
+    const secondResult = resolveTurn(
+      buildInput({
+        actor,
+        defender,
+        random: new SequenceRandomSource([15, 5]),
+      }),
+    );
+
+    expect(firstResult).toEqual(secondResult);
+    // The original combatants passed in are untouched between calls.
+    expect(actor.currentHp).toBe(30);
+    expect(defender.currentHp).toBe(30);
+  });
+});
