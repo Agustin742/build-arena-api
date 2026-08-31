@@ -25,7 +25,10 @@ describe('maxHp', () => {
 
 describe('initiative', () => {
   it('adds the dexterity modifier to a rolled d20', () => {
-    const random: RandomSource = { rollD20: jest.fn().mockReturnValue(15), rollDice: jest.fn() };
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(15),
+      rollDice: jest.fn(),
+    };
 
     // dexterity 14 -> mod +2 -> 15 + 2 = 17
     expect(initiative(14, random)).toBe(17);
@@ -33,7 +36,10 @@ describe('initiative', () => {
   });
 
   it('supports a negative dexterity modifier lowering the total', () => {
-    const random: RandomSource = { rollD20: jest.fn().mockReturnValue(3), rollDice: jest.fn() };
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(3),
+      rollDice: jest.fn(),
+    };
 
     // dexterity 8 -> mod -1 -> 3 + (-1) = 2
     expect(initiative(8, random)).toBe(2);

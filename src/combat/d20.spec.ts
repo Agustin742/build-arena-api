@@ -7,14 +7,20 @@ describe('resolveBias', () => {
     [true, false, 'ADVANTAGE'],
     [false, true, 'DISADVANTAGE'],
     [true, true, 'NORMAL'],
-  ] as const)('advantage=%s disadvantage=%s -> %s', (advantage, disadvantage, expected) => {
-    expect(resolveBias(advantage, disadvantage)).toBe(expected);
-  });
+  ] as const)(
+    'advantage=%s disadvantage=%s -> %s',
+    (advantage, disadvantage, expected) => {
+      expect(resolveBias(advantage, disadvantage)).toBe(expected);
+    },
+  );
 });
 
 describe('rollD20With', () => {
   it('rolls once under NORMAL bias', () => {
-    const random: RandomSource = { rollD20: jest.fn().mockReturnValue(11), rollDice: jest.fn() };
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(11),
+      rollDice: jest.fn(),
+    };
 
     expect(rollD20With(random, 'NORMAL')).toEqual({ rolls: [11], kept: 11 });
     expect(random.rollD20).toHaveBeenCalledTimes(1);
@@ -24,7 +30,10 @@ describe('rollD20With', () => {
     const rollD20 = jest.fn().mockReturnValueOnce(7).mockReturnValueOnce(15);
     const random: RandomSource = { rollD20, rollDice: jest.fn() };
 
-    expect(rollD20With(random, 'ADVANTAGE')).toEqual({ rolls: [7, 15], kept: 15 });
+    expect(rollD20With(random, 'ADVANTAGE')).toEqual({
+      rolls: [7, 15],
+      kept: 15,
+    });
     expect(rollD20).toHaveBeenCalledTimes(2);
   });
 
@@ -32,7 +41,10 @@ describe('rollD20With', () => {
     const rollD20 = jest.fn().mockReturnValueOnce(7).mockReturnValueOnce(15);
     const random: RandomSource = { rollD20, rollDice: jest.fn() };
 
-    expect(rollD20With(random, 'DISADVANTAGE')).toEqual({ rolls: [7, 15], kept: 7 });
+    expect(rollD20With(random, 'DISADVANTAGE')).toEqual({
+      rolls: [7, 15],
+      kept: 7,
+    });
     expect(rollD20).toHaveBeenCalledTimes(2);
   });
 

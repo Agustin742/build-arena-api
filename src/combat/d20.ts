@@ -6,8 +6,15 @@ import type { RollBias } from './types';
  * two advantage sources are still one advantage, and advantage with
  * disadvantage collapses to a clean single roll (Decision D).
  */
-export const resolveBias = (advantage: boolean, disadvantage: boolean): RollBias =>
-  advantage === disadvantage ? 'NORMAL' : advantage ? 'ADVANTAGE' : 'DISADVANTAGE';
+export const resolveBias = (
+  advantage: boolean,
+  disadvantage: boolean,
+): RollBias =>
+  advantage === disadvantage
+    ? 'NORMAL'
+    : advantage
+      ? 'ADVANTAGE'
+      : 'DISADVANTAGE';
 
 /**
  * Rolls a d20 once under NORMAL bias, or twice under ADVANTAGE/DISADVANTAGE,
@@ -24,5 +31,8 @@ export const rollD20With = (
     return { rolls: [only], kept: only };
   }
   const rolls = [random.rollD20(), random.rollD20()] as const;
-  return { rolls, kept: bias === 'ADVANTAGE' ? Math.max(...rolls) : Math.min(...rolls) };
+  return {
+    rolls,
+    kept: bias === 'ADVANTAGE' ? Math.max(...rolls) : Math.min(...rolls),
+  };
 };

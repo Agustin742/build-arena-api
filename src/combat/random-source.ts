@@ -5,9 +5,9 @@
  */
 export interface RandomSource {
   /** 1..20 */
-  rollD20(): number;
+  rollD20: () => number;
   /** Sum of `count` independent d`faces`, e.g. `rollDice('2d6')`. */
-  rollDice(notation: string): number;
+  rollDice: (notation: string) => number;
 }
 
 const NOTATION_PATTERN = /^(\d+)d(\d+)$/;
@@ -16,7 +16,9 @@ const NOTATION_PATTERN = /^(\d+)d(\d+)$/;
 const parseNotation = (notation: string): { count: number; faces: number } => {
   const match = NOTATION_PATTERN.exec(notation);
   if (!match) {
-    throw new Error(`Invalid dice notation: "${notation}". Expected the form "NdM".`);
+    throw new Error(
+      `Invalid dice notation: "${notation}". Expected the form "NdM".`,
+    );
   }
   return { count: Number(match[1]), faces: Number(match[2]) };
 };
@@ -64,7 +66,9 @@ export class SequenceRandomSource implements RandomSource {
 
   private draw(): number {
     if (this.cursor >= this.script.length) {
-      throw new Error('SequenceRandomSource exhausted: no more scripted values to draw.');
+      throw new Error(
+        'SequenceRandomSource exhausted: no more scripted values to draw.',
+      );
     }
     const value = this.script[this.cursor];
     this.cursor += 1;

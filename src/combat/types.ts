@@ -38,8 +38,14 @@ export type CombatSkill = {
   readonly conditionRounds: number | null;
 };
 
-export type DeclaredAction = { readonly actorId: string; readonly skill: CombatSkill };
-export type DeclaredReaction = { readonly actorId: string; readonly skill: CombatSkill };
+export type DeclaredAction = {
+  readonly actorId: string;
+  readonly skill: CombatSkill;
+};
+export type DeclaredReaction = {
+  readonly actorId: string;
+  readonly skill: CombatSkill;
+};
 
 /** = BattleTurn minus `id`, `battleId`, `createdAt` (all database-owned). */
 export type TurnRecord = {
@@ -56,7 +62,11 @@ export type TurnRecord = {
 };
 
 export type CombatEvent =
-  | { readonly type: 'ROUND_STARTED'; readonly round: number; readonly actorId: string }
+  | {
+      readonly type: 'ROUND_STARTED';
+      readonly round: number;
+      readonly actorId: string;
+    }
   | { readonly type: 'REACTION_RECHARGED'; readonly combatantId: string }
   | {
       readonly type: 'CONDITION_TICKED';
@@ -64,7 +74,11 @@ export type CombatEvent =
       readonly condition: ConditionType;
       readonly roundsRemaining: number;
     }
-  | { readonly type: 'CONDITION_EXPIRED'; readonly combatantId: string; readonly condition: ConditionType }
+  | {
+      readonly type: 'CONDITION_EXPIRED';
+      readonly combatantId: string;
+      readonly condition: ConditionType;
+    }
   | {
       readonly type: 'CONDITION_APPLIED';
       readonly combatantId: string;
@@ -72,7 +86,11 @@ export type CombatEvent =
       readonly rounds: number;
       readonly refreshed: boolean;
     }
-  | { readonly type: 'TURN_SKIPPED'; readonly combatantId: string; readonly reason: 'STUNNED' }
+  | {
+      readonly type: 'TURN_SKIPPED';
+      readonly combatantId: string;
+      readonly reason: 'STUNNED';
+    }
   | {
       readonly type: 'REACTION_IGNORED';
       readonly combatantId: string;
@@ -103,8 +121,18 @@ export type CombatEvent =
       readonly before: number;
       readonly after: number;
     }
-  | { readonly type: 'DAMAGE_APPLIED'; readonly targetId: string; readonly amount: number; readonly currentHp: number }
-  | { readonly type: 'COUNTER_ATTACKED'; readonly actorId: string; readonly skillCode: string; readonly damage: number }
+  | {
+      readonly type: 'DAMAGE_APPLIED';
+      readonly targetId: string;
+      readonly amount: number;
+      readonly currentHp: number;
+    }
+  | {
+      readonly type: 'COUNTER_ATTACKED';
+      readonly actorId: string;
+      readonly skillCode: string;
+      readonly damage: number;
+    }
   | { readonly type: 'COMBATANT_DEFEATED'; readonly combatantId: string };
 
 export type TurnInput = {
@@ -128,12 +156,22 @@ export type TurnResolution = {
 /** Reaction mitigation shape: a halving (PARRY) or a flat reduction with a floor (BRACE). */
 export type MitigationSpec =
   | { readonly kind: 'HALVE' }
-  | { readonly kind: 'FLAT'; readonly from: AttributeKey; readonly minimum: number };
+  | {
+      readonly kind: 'FLAT';
+      readonly from: AttributeKey;
+      readonly minimum: number;
+    };
 
 /** Reaction behavior: which action types it answers, its defense bonus, mitigation, and counter. */
 export type ReactionBehavior = {
   readonly answers: ActionResolution | 'ANY';
-  readonly defense: { readonly bonusFrom: AttributeKey; readonly target: 'ARMOR_CLASS' | 'SAVE_ROLL' } | null;
+  readonly defense: {
+    readonly bonusFrom: AttributeKey;
+    readonly target: 'ARMOR_CLASS' | 'SAVE_ROLL';
+  } | null;
   readonly mitigation: MitigationSpec | null;
-  readonly counter: { readonly on: 'HIT' | 'MISS'; readonly bonusFrom: AttributeKey } | null;
+  readonly counter: {
+    readonly on: 'HIT' | 'MISS';
+    readonly bonusFrom: AttributeKey;
+  } | null;
 };
