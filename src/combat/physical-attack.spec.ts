@@ -79,7 +79,10 @@ describe('resolvePhysicalAttack', () => {
 
   it('a natural 20 is an automatic critical hit even against a high armor class (Decision E)', () => {
     const rollDice = jest.fn().mockReturnValueOnce(5).mockReturnValueOnce(3);
-    const random: RandomSource = { rollD20: jest.fn().mockReturnValue(20), rollDice };
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(20),
+      rollDice,
+    };
     const attacker = buildCombatant({ strength: 14 }); // mod +2
 
     const result = resolvePhysicalAttack({

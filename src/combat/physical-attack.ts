@@ -36,9 +36,7 @@ export const resolvePhysicalAttack = (
 ): PhysicalAttackResult => {
   const { attacker, skill, armorClass, bias, random } = input;
   const { rolls, kept } = rollD20With(random, bias);
-  const attributeMod = modifier(
-    attributeOf(attacker, skill.requiredAttribute),
-  );
+  const attributeMod = modifier(attributeOf(attacker, skill.requiredAttribute));
   const targetValue = kept + attributeMod;
   const critical = kept === 20;
   const hit = kept === 1 ? false : critical ? true : targetValue >= armorClass;
