@@ -6,6 +6,7 @@ export * from './arithmetic';
 export * from './d20';
 export * from './damage';
 export * from './derived-stats';
+export * from './magic-attack';
 export * from './physical-attack';
 export * from './random-source';
 export * from './types';
