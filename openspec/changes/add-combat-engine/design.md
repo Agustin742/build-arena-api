@@ -136,7 +136,7 @@ drifting silently.
 | # | Decision | Alternatives rejected | Rationale |
 |---|----------|-----------------------|-----------|
 | D1 | `RandomSource` interface with `rollD20()` and `rollDice(notation)` | Seeded PRNG; bare `() => number` | Only shape where a test forces a natural 20 by writing `20`. A seed would need reverse engineering; a bare thunk cannot tell an attack roll from `2d6`. |
-| D2 | Critical = doubled **notation** (`2d6` → `4d6`), one `rollDice` call | Call `rollDice('1d6')` per die; multiply the sum by 2 | `rollDice`'s contract is "sum of `count` independent dice", so `'4d6'` *is* four dice. The R15 assertion is the argument, and a scripted source still consumes four draws. Multiplying the sum would be a different, non-representable value. |
+| D2 | Critical = the skill's own notation rolled **twice** and summed (`rollDice('2d6')` twice) | One call with doubled notation (`'4d6'`); call `rollDice('1d6')` per die; multiply the sum by 2 | Same distribution as `'4d6'` with no notation rewriting: doubling `'2d6'` into `'4d6'` means parsing the count, multiplying it and rebuilding the string, which is new code that can fail on its own. Rolling the skill's dice twice is literally what "double the dice" says, and the R15 assertion is the call count, which is the rationale the ruleset was approved on. Multiplying the sum would be a different, non-representable value. |
 | D3 | All rule rounding routes through `arithmetic.ts` | `Math.floor` at each call site | One greppable invariant: `Math.floor` appears in exactly two files under `src/combat/` — `arithmetic.ts` (rules) and `random-source.ts` (die draw, not rule arithmetic). |
 | D4 | Halvings first, flat `BRACE` subtraction last | Reaction mitigation before condition/save halving | `⌊⌊x/2⌋/2⌋ = ⌊x/4⌋`, so halvings provably commute and their relative order cannot matter. The flat subtraction does not commute, so it is pinned last — which also keeps R5's "minimum 1" a real floor instead of something a later halving turns into 0. |
 | D5 | Reaction *behavior* in a typed table, reaction *numbers* in the database | All in the table; new `Skill` columns | See the split justification below. |
@@ -177,17 +177,20 @@ const random = { rollD20: jest.fn(), rollDice: jest.fn() };
 
 // a natural 20 -> critical, and an exact damage roll
 random.rollD20.mockReturnValueOnce(20);
-random.rollDice.mockReturnValueOnce(24);
+random.rollDice.mockReturnValueOnce(12).mockReturnValueOnce(12);
 const crit = resolvePhysicalAttack({ ...base, random });
 expect(crit.critical).toBe(true);
-expect(random.rollDice).toHaveBeenCalledWith('4d6'); // R15: twice the dice, not the sum doubled
+// R15: the skill's own dice rolled twice, not the sum doubled
+expect(random.rollDice).toHaveBeenCalledTimes(2);
+expect(random.rollDice).toHaveBeenNthCalledWith(1, '2d6');
+expect(random.rollDice).toHaveBeenNthCalledWith(2, '2d6');
 expect(crit.rawDamage).toBe(24 + modifier(actor.strength));
 
 // a natural 1 -> automatic miss, which is what opens the RIPOSTE trigger
 random.rollD20.mockReturnValueOnce(1);
 expect(resolvePhysicalAttack({ ...base, random }).hit).toBe(false);
 
-// whole-pipeline determinism: nat 20 then 4d6 all sixes
+// whole-pipeline determinism: nat 20 then 2d6 rolled twice, all sixes
 const scripted = new SequenceRandomSource([20, 6, 6, 6, 6]);
 expect(resolveTurn({ ...input, random: scripted })).toEqual(
   resolveTurn({ ...input, random: new SequenceRandomSource([20, 6, 6, 6, 6]) }),

@@ -123,10 +123,11 @@ from round N+1's round-start tick.
 ### Requirement: Round Start Is a Pure Function of State (Decision C, Decision F)
 
 The engine MUST expose round start as a pure function
-`startRound(state) -> { state, events }` that decrements `roundsRemaining`
-on every active condition by 1, removes any condition reaching 0 and emits
-an expiration event for it, and sets `reactionAvailable = true` for the
-combatant whose round is starting. The engine MUST NOT decide when this
+`startRound(state) -> { state, events }` that FIRST removes any condition
+whose `roundsRemaining` has already reached 0, emitting an expiration event
+for it, THEN decrements `roundsRemaining` by 1 on every condition that
+remains, and sets `reactionAvailable = true` for the combatant whose round
+is starting. The engine MUST NOT decide when this
 function is invoked; the caller controls that.
 
 Both halves of the tick are scoped to the **acting** combatant and to no one
@@ -154,10 +155,16 @@ not three passes of the round counter.
 - WHEN startRound is called
 - THEN roundsRemaining becomes 1 and the condition remains active
 
-#### Scenario: A condition expires at round start
+#### Scenario: A one-round condition still bites on the turn it was meant to cost
 
 - GIVEN STUNNED with roundsRemaining 1
 - WHEN startRound is called
+- THEN nothing is removed, roundsRemaining becomes 0, and the condition is still active for that turn, so the turn is skipped
+
+#### Scenario: A condition expires at the following round start
+
+- GIVEN STUNNED with roundsRemaining 0, after the turn it cost
+- WHEN startRound is called again for that combatant
 - THEN the condition is removed and a `CONDITION_EXPIRED` event is emitted
 
 #### Scenario: The acting combatant's reaction recharges
