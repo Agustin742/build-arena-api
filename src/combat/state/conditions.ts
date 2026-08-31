@@ -4,7 +4,7 @@ import type {
   CombatSkill,
   ConditionType,
   RollBias,
-} from './types';
+} from '../types';
 
 const hasCondition = (combatant: Combatant, type: ConditionType): boolean =>
   combatant.conditions.some((condition) => condition.type === type);

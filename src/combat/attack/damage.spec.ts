@@ -1,7 +1,7 @@
 import { attributeOf, reduceDamage, rollDamage } from './damage';
-import { modifier } from './arithmetic';
-import type { RandomSource } from './random-source';
-import type { Combatant, MitigationSpec } from './types';
+import { modifier } from '../core/arithmetic';
+import type { RandomSource } from '../core/random-source';
+import type { Combatant, MitigationSpec } from '../types';
 
 const buildCombatant = (overrides: Partial<Combatant> = {}): Combatant => ({
   id: 'combatant-1',

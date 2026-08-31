@@ -1,15 +1,15 @@
-import { modifier } from './arithmetic';
+import { modifier } from './core/arithmetic';
 import {
   applyCondition,
   attackBiasFor,
   conditionFromSkill,
   isStunned,
   isWeakened,
-} from './conditions';
-import { attributeOf, reduceDamage, rollDamage } from './damage';
-import { resolveMagicAttack } from './magic-attack';
-import { resolvePhysicalAttack } from './physical-attack';
-import { isApplicable, REACTION_TABLE } from './reactions';
+} from './state/conditions';
+import { attributeOf, reduceDamage, rollDamage } from './attack/damage';
+import { resolveMagicAttack } from './attack/magic-attack';
+import { resolvePhysicalAttack } from './attack/physical-attack';
+import { isApplicable, REACTION_TABLE } from './state/reactions';
 import type {
   ActionResolution,
   Combatant,

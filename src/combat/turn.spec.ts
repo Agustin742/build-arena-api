@@ -1,6 +1,6 @@
 import { resolveTurn } from './turn';
-import { SequenceRandomSource } from './random-source';
-import type { RandomSource } from './random-source';
+import { SequenceRandomSource } from './core/random-source';
+import type { RandomSource } from './core/random-source';
 import type { Combatant, CombatSkill, TurnInput } from './types';
 
 const buildCombatant = (overrides: Partial<Combatant> = {}): Combatant => ({

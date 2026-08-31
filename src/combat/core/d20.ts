@@ -1,5 +1,5 @@
 import type { RandomSource } from './random-source';
-import type { RollBias } from './types';
+import type { RollBias } from '../types';
 
 /**
  * Boolean equality is exactly §4.4's non-stacking and mutual cancellation:

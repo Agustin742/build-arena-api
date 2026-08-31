@@ -1,4 +1,4 @@
-import type { CombatEvent, Combatant } from './types';
+import type { CombatEvent, Combatant } from '../types';
 
 export type StartRoundInput = {
   readonly round: number;

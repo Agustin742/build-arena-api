@@ -1,6 +1,6 @@
-import { clampDamage, halve, modifier } from './arithmetic';
-import type { RandomSource } from './random-source';
-import type { AttributeKey, Combatant, MitigationSpec } from './types';
+import { clampDamage, halve, modifier } from '../core/arithmetic';
+import type { RandomSource } from '../core/random-source';
+import type { AttributeKey, Combatant, MitigationSpec } from '../types';
 
 /** Reads a single named attribute off a `Combatant`. */
 export const attributeOf = (

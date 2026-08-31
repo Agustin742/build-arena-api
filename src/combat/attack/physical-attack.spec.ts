@@ -1,6 +1,6 @@
 import { resolvePhysicalAttack } from './physical-attack';
-import type { RandomSource } from './random-source';
-import type { Combatant, CombatSkill } from './types';
+import type { RandomSource } from '../core/random-source';
+import type { Combatant, CombatSkill } from '../types';
 
 const buildCombatant = (overrides: Partial<Combatant> = {}): Combatant => ({
   id: 'combatant-1',
