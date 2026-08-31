@@ -289,10 +289,11 @@ export const reduceDamage = (raw: number, ctx: {
   if (ctx.savePassed) value = halve(value);                           // overview §4.3
   if (ctx.mitigation?.kind === 'HALVE') value = halve(value);         // R6 PARRY
   if (ctx.mitigation?.kind === 'FLAT' && value > 0) {                 // R5 BRACE
-    value = Math.max(
+    const reduction = Math.max(
       ctx.mitigation.minimum,
-      value - modifier(attributeOf(ctx.reactor, ctx.mitigation.from)),
+      modifier(attributeOf(ctx.reactor, ctx.mitigation.from)),
     );
+    value = value - reduction;
   }
   return clampDamage(value);
 };
@@ -303,8 +304,11 @@ export const reduceDamage = (raw: number, ctx: {
 floor division, so their relative order is provably irrelevant; only the flat `BRACE`
 subtraction is order-sensitive and it is fixed last. In practice at most two halvings ever
 stack, because `PARRY` is physical-only and the save halving is magic-only, and because a
-combatant declares exactly one reaction. `BRACE`'s minimum-1 floor is guarded by `value > 0`
-so it can never *raise* damage that was already zero.
+combatant declares exactly one reaction. `BRACE`'s minimum of 1 floors the *reduction*, never the
+resulting damage. Flooring the result instead would turn a negative constitution
+modifier into a damage increase: with modifier -1 against raw 4, `max(1, 4 - -1)` is 5,
+so a defensive reaction would hurt more than no reaction at all. The `value > 0` guard
+keeps it from raising damage that was already zero.
 
 ## The Nine-Step Resolution Pipeline
 
