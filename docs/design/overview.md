@@ -60,7 +60,7 @@ Se descartaron: acción adicional, concentración, movimiento y grilla. Es un du
 | --- | --- | --- |
 | `strength` | Ataque físico contra la Clase de Armadura | — |
 | `magic` | Ataque mágico que fuerza tirada de salvación | — |
-| `dexterity` | — | Clase de Armadura e iniciativa |
+| `dexterity` | Ataque físico contra la Clase de Armadura, en habilidades que la destreza desbloquea (ej. `PRECISE_SHOT`) | Clase de Armadura e iniciativa |
 | `constitution` | — | Puntos de vida y tirada de salvación |
 
 **El problema que esto resuelve:** con presupuesto fijo, un atributo que nadie sube es peso muerto y uno que todos suben es un impuesto, no una decisión. Si hubiera una sola ruta de ataque, la defensa que la frena sería obligatoria para todos.
@@ -71,6 +71,8 @@ Al existir **dos rutas de ataque con dos defensas distintas**, aparece un piedra
 Build ágil        AC alta, HP bajos    resiste fisico, sufre magia
 Build resistente  AC baja, HP altos    sufre fisico, resiste magia
 ```
+
+**`dexterity` no abre una tercera ruta mecánica: resuelve la ofensiva física ya existente.** Una habilidad que `dexterity` desbloquea, como `PRECISE_SHOT`, tira ataque y daño con el modificador de destreza en lugar del de fuerza, pero contra la misma Clase de Armadura del rival, no una fórmula nueva. `strength` y `dexterity` compiten por el mismo casillero ofensivo físico; siguen existiendo dos rutas de ataque (física y mágica), y `constitution` sigue siendo puramente defensiva.
 
 ### 2.4 Compra de puntos con costo escalado
 
