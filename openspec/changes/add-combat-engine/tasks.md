@@ -126,29 +126,49 @@ made here, per the tasks.md instruction to stop at this boundary.
       independently landable as PR 2a, per design.md's "each slice compiles, tests and reverts
       alone" principle. Plus one follow-up `style(combat): apply prettier formatting to physical
       attack files` commit for `pnpm lint --fix` line-wrap changes.
-- [ ] 2.5 Test: `src/combat/magic-attack.spec.ts` — Requirement "Magic Attack Resolution": all six
+- [x] 2.5 Test: `src/combat/magic-attack.spec.ts` — Requirement "Magic Attack Resolution": all six
       scenarios ("Failed save takes full damage", "Successful save halves damage, rounding down",
       "Natural 20 save is an ordinary success", "Natural 1 save is an ordinary failure", "A
       POISONED attacker's lowered difficulty turns a failed save into a successful one", "The
       POISONED penalty lowers the difficulty imposed, never a save the bearer makes"), R12/R13/
       Decision G; cross-ref combat-conditions "A poisoned magic attacker imposes a difficulty
-      lowered by 2" (same assertion, primary home here per design.md).
+      lowered by 2" (same assertion, primary home here per design.md). Also covers
+      `saveDifficultyFor` directly and one composition test for ARCANE_WARD's `wardBonus` landing
+      on the roll, not the difficulty (9 tests total).
       commit: `test(combat): cover magic saving throw and poisoned difficulty penalty`
-- [ ] 2.6 Impl: `src/combat/magic-attack.ts` — `saveDifficultyFor` reading the attacker's
+- [x] 2.6 Impl: `src/combat/magic-attack.ts` — `saveDifficultyFor` reading the attacker's
       conditions directly (no slice-3 import), `resolveMagicAttack`, no save critical. R12, R13;
       Decision G.
       commit: `feat(combat): resolve magic attacks via saving throw`
-- [ ] 2.7 Docs: `docs/design/overview.md` §2.3 — add dexterity as a third offensive route (R14
+      **DESIGN GAP FILLED**: design.md's `resolveMagicAttack` signature snippet omits a damage
+      field entirely (only `difficulty`, `rolls`, `kept`, `savePassed`). Added `rawDamage`
+      (mirroring `physical-attack.ts`'s field), rolled via the existing `rollDamage` with bonus 0
+      — spec.md's scenarios assert exact damage numbers (e.g. `rollDice('2d6')` returns 9 ->
+      damage 9) with no attribute bonus added, unlike physical's `+ mod(strength)`. The
+      save-passed halving is NOT baked into `resolveMagicAttack`; it is left to the already-shipped
+      `reduceDamage` (which already accepts `savePassed` in its ctx), composed in the spec the same
+      way `turn.ts` will compose it in slice 4. This avoids reimplementing `halve()` a second time
+      and keeps `reduceDamage` the single owner of that arithmetic (D3).
+- [x] 2.7 Docs: `docs/design/overview.md` §2.3 — add dexterity as a third offensive route (R14
       makes PRECISE_SHOT dexterity-resolved; §2.3 currently lists only strength and magic).
       commit: `docs(combat): document dexterity as third offensive route in overview`
-- [ ] 2.8 Impl: `src/combat/index.ts` — extend with slice-2 surface. No dedicated test (barrel).
+- [x] 2.8 Impl: `src/combat/index.ts` — extend with slice-2 surface. No dedicated test (barrel).
       commit: `feat(combat): export slice two public surface from index`
-- [ ] 2.9 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 2. No commit.
+- [x] 2.9 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 2b. No commit.
+      RESULT: `pnpm test` 11 suites, 86/86 tests pass. `pnpm lint` clean, no fixes needed.
+      `pnpm build` exit 0, `dist/combat/magic-attack.js` present, no `dist/src/` nesting. `rg
+      "@nestjs" src/combat/` no matches. `rg "Math\.floor" src/combat/` confined to
+      `arithmetic.ts` and `random-source.ts` (D3 invariant holds).
+      **MEASURED, NOT ESTIMATED**: `git diff --shortstat feat/combat-physical-attack..HEAD` =
+      312 insertions, 1 deletion, 4 files — within the 400-line budget.
 
-## Slice 2b — `feat/combat-magic-attack` (base: `feat/combat-physical-attack`)
+## Slice 2b — `feat/combat-magic-attack` (base: `feat/combat-physical-attack`) — COMPLETE
 
 Magic attack resolution with the saving throw, the `docs/design/overview.md` §2.3 edit,
-and the magic half of the `index.ts` surface. Tasks 2.5 to 2.9.
+and the magic half of the `index.ts` surface. Tasks 2.5 to 2.9, all done. Landed at 313
+changed lines against the 400-line budget — under budget, no split needed, no maintainer
+exception required. `gentle-ai sdd-attempt settle` returned `state: complete` (no
+`maintainer_decision` block, unlike slices 1 and 2a).
 
 ## Slice 3 — `feat/combat-conditions-reactions` (base: `feat/combat-magic-attack`)
 
