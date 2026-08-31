@@ -94,6 +94,21 @@ modifier(value) = floor((value - 10) / 2)
 
 Consecuencia intencional: 14 y 15 dan el mismo `+2`, así que un valor impar es un punto desperdiciado salvo que algo lo levante.
 
+**El presupuesto de atributos es de 20 puntos**, gastados desde una base de 8 en los
+cuatro. Ese número no es arbitrario: es el que hace que las tres formas de repartir
+cuesten lo mismo y ninguna domine a las otras.
+
+| Build | Reparto | Cuenta |
+| --- | --- | --- |
+| Especialista | 15 / 14 / 12 / 8 | 9 + 7 + 4 + 0 = 20 |
+| Equilibrada | 13 / 13 / 13 / 13 | 5 + 5 + 5 + 5 = 20 |
+| Híbrida | 15 / 13 / 12 / 10 | 9 + 5 + 4 + 2 = 20 |
+
+El piso también entra: la build más barata que cumple los requisitos de cuatro
+habilidades —Fuerza 12, Magia 11, Constitución 12 y Destreza 12— cuesta 15 puntos, así
+que sobran 5 para empujar algo a 14. Con un presupuesto mucho mayor la pregunta de esta
+sección desaparece, porque alcanzaría para comprar todo.
+
 ### 2.5 Kit de habilidades con costo y requisitos
 
 Cada build elige **2 habilidades de acción y 2 de reacción**, pagándolas de un presupuesto de kit separado del de atributos. Cada habilidad además exige un mínimo en un atributo.
@@ -101,6 +116,25 @@ Cada build elige **2 habilidades de acción y 2 de reacción**, pagándolas de u
 **Por qué costo variable:** si todas costaran igual, existiría un mejor conjunto de cuatro y todos convergerían ahí. Es la trampa del costo lineal con otro nombre.
 
 **Por qué requisitos de atributo:** atan las dos mitades de la build. Subir `magic` no solo aumenta daño, **desbloquea habilidades**. Los arquetipos aparecen solos, sin necesidad de definir clases.
+
+**El presupuesto de kit es de 18 puntos.** El kit más barato del catálogo cuesta 15
+(`POWER_STRIKE` + `VENOM_BOLT` + `BRACE` + `PARRY`) y el más caro 26, así que 18 deja
+tres puntos de margen sobre el piso.
+
+**Por qué 18 y no 20:** existe una build degenerada. Fuerza sola desbloquea las cuatro
+habilidades —`RECKLESS_BLOW` y `COUNTER` piden Fuerza 14, `POWER_STRIKE` y `PARRY` piden
+Fuerza 12— así que un único atributo en 14, siete puntos, alcanza para el kit entero y
+deja trece libres. Eso contradice el párrafo anterior: los requisitos dejarían de atar
+las dos mitades de la build. Ese kit cuesta exactamente 20 puntos, y con 18 queda fuera
+de alcance.
+
+No hace falta el mismo cuidado con los otros atributos: Magia tiene una sola reacción,
+Destreza una sola acción y Constitución ninguna acción, así que el catálogo ya impide
+sus versiones mono. Fuerza era el único hueco, y el presupuesto de kit lo cierra.
+
+**Segunda consecuencia buscada:** `MIND_SPIKE` y `RIPOSTE` cuestan 7 cada una y las dos
+ranuras restantes cuestan como mínimo 7, así que juntas suman 21 y nunca conviven. Las
+dos habilidades más caras del catálogo son mutuamente excluyentes.
 
 ### 2.6 Sin equipamiento
 
