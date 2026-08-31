@@ -23,13 +23,16 @@ The engine MUST compute `armorClass = 10 + mod(dexterity)`,
 - WHEN derived stats are computed
 - THEN armorClass is 12 and maxHp is 35
 
-### Requirement: Physical Attack Resolution Against Armor Class (Baseline §4.2, R15)
+### Requirement: Physical Attack Resolution Against Armor Class (Baseline §4.2, R15, Decision E)
 
 The engine MUST roll `rollD20() + mod(strength)` against the defender's
 effective armor class. Meeting or exceeding it is a hit; there is no partial
 damage. A natural 20 is always a hit and a critical, doubling the number of
 damage dice rolled — R15 means two separate `rollDice(notation)` calls with
-the skill's damage notation, summed, not one call with a doubled notation.
+the skill's damage notation, summed, not one call with a doubled notation. A
+natural 1 is always a miss, regardless of the total (Decision E). Both
+outcomes MUST be decided before the effective armor class is consulted, so
+DODGE's bonus can never negate a critical and can never rescue a natural 1.
 
 #### Scenario: Hit with POWER_STRIKE
 
@@ -49,17 +52,29 @@ the skill's damage notation, summed, not one call with a doubled notation.
 - WHEN rollD20() returns 20 and rollDice('1d8') is called twice, returning 5 then 3
 - THEN the attack hits, is marked critical, and damage is 5 + 3 + 2 = 10
 
-### Requirement: Magic Attack Resolution via Saving Throw (Baseline §4.3, R12, R13)
+#### Scenario: Natural 1 is an automatic miss
 
-The engine MUST set `saveDifficulty = 8 + mod(attacker.magic)` and roll the
-defender's save as `rollD20() + mod(constitution)`. A successful save halves
-damage, rounding down; a failed save takes it in full. A natural 20 or
-natural 1 on the save MUST NOT trigger any special effect beyond the ordinary
-success/failure outcome (R12).
+- GIVEN attacker strength mod +5, defender armorClass 6 (roll+mod would otherwise hit)
+- WHEN rollD20() returns 1 (6 total, which meets armorClass 6)
+- THEN the attack misses, damage is 0, rollDice is not called, and RIPOSTE's miss trigger is open
+
+### Requirement: Magic Attack Resolution via Saving Throw (Baseline §4.3, R12, R13, Decision G)
+
+The engine MUST compute the save difficulty from the **attacker's** magic
+score and the **attacker's** active conditions:
+`saveDifficulty = 8 + mod(attacker.magic)`, lowered by 2 while the attacker
+is POISONED, giving `saveDifficulty = 8 + mod(attacker.magic) - 2` in that
+case (Decision G). Reading the attacker's conditions here is mandatory: it is
+the only step of the resolution that consults the attacker's conditions
+rather than the defender's. The engine MUST then roll the defender's save as
+`rollD20() + mod(constitution)`. A successful save halves damage, rounding
+down; a failed save takes it in full. A natural 20 or natural 1 on the save
+MUST NOT trigger any special effect beyond the ordinary success/failure
+outcome (R12).
 
 #### Scenario: Failed save takes full damage
 
-- GIVEN FIREBALL, attacker magic mod +2 (saveDifficulty 10), defender constitution mod +1
+- GIVEN FIREBALL, attacker magic mod +2 with no active conditions (saveDifficulty 10), defender constitution mod +1
 - WHEN defender rollD20() returns 8 (9 total, fails) and rollDice('2d6') returns 9
 - THEN damage is 9
 
@@ -80,6 +95,18 @@ success/failure outcome (R12).
 - GIVEN the same FIREBALL setup
 - WHEN defender rollD20() returns 1 (fails) and rollDice('2d6') returns 9
 - THEN damage is 9, identical to any other failed save, with no additional effect
+
+#### Scenario: A POISONED attacker's lowered difficulty turns a failed save into a successful one
+
+- GIVEN FIREBALL, attacker magic mod +2 and POISONED with roundsRemaining 2, so saveDifficulty is 8 + 2 - 2 = 8, defender constitution mod +1
+- WHEN defender rollD20() returns 8 (9 total) and rollDice('2d6') returns 9
+- THEN the save succeeds against 8 and damage is floor(9 / 2) = 4, where the identical roll against the unpoisoned difficulty of 10 would have failed and dealt 9
+
+#### Scenario: The POISONED penalty lowers the difficulty imposed, never a save the bearer makes
+
+- GIVEN the POISONED combatant is the defender against FIREBALL from an unpoisoned attacker with magic mod +2 (saveDifficulty 10), defender constitution mod +1
+- WHEN defender rollD20() returns 8 (9 total)
+- THEN the save fails against 10, because POISONED lowers only the difficulty its bearer imposes when attacking with magic and never the bearer's own save total
 
 ### Requirement: Advantage and Disadvantage (Baseline §4.4, Decision D)
 

@@ -70,11 +70,14 @@ evaluated.
 ### Requirement: ARCANE_WARD Adds Magic Modifier to the Saving Throw (R8)
 
 ARCANE_WARD MUST add `mod(magic)` to the defender's saving throw for that
-single incoming magic attack only, and applies only to magic actions.
+single incoming magic attack only, and applies only to magic actions. The
+bonus MUST land on the defender's roll and never on the difficulty, which is
+computed from the attacker's magic and conditions (Decision G); the two are
+independent and compose without interfering.
 
 #### Scenario: ARCANE_WARD raises the save total
 
-- GIVEN defender constitution mod +1, magic mod +2, saveDifficulty 10
+- GIVEN defender constitution mod +1, magic mod +2, and an unpoisoned attacker with magic mod +2 (saveDifficulty 10)
 - WHEN rollD20() returns 6 (7 total without the ward) and ARCANE_WARD is used
 - THEN the total is 9, still failing against 10 in this example, showing the modifier is additive, not a guaranteed success
 
@@ -95,7 +98,7 @@ automatically from the incoming action's hit result.
 
 - GIVEN the defender using COUNTER is POISONED
 - WHEN the counter-attack resolves
-- THEN no additional rollD20() calls occur for the counter-attack and its damage is unaffected, because POISONED's disadvantage applies only to attack rolls and COUNTER has none
+- THEN no additional rollD20() calls occur for the counter-attack and its damage is unaffected, because POISONED's disadvantage applies only to attack rolls and COUNTER has none, and its -2 applies only to the saving throw difficulty of a magic attack, which a counter-attack never imposes
 
 ### Requirement: RIPOSTE Triggers Only on a Miss and Applies WEAKENED (R10)
 

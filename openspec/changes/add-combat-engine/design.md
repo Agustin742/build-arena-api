@@ -221,10 +221,48 @@ asked for a d20 once or twice, and the *caller* keeps the max or the min. The cr
 consequence recorded as decision D in Engram 229 (5% → ~9.75% under advantage) follows
 directly and is left in place.
 
-`POISONED` is the only bias source in the catalog today, and it applies to **attack rolls
-only**. Saving throws and initiative are never biased, so a `POISONED` mage is mechanically
-unaffected — magic has no attack roll. That is a strict consequence of R1 plus §4.3, not an
-oversight, and it is documented rather than patched.
+`POISONED` is the only bias source in the catalog today, and its bias applies to **attack
+rolls only**. Saving throws and initiative are never biased. Because magic makes no attack
+roll, the bias alone would leave a `POISONED` mage mechanically untouched; the user closed
+that gap with decision G below, which gives `POISONED` a second, save-side effect.
+
+## `POISONED` and the Magic Save Difficulty (Decision G)
+
+`POISONED` has two effects, on two different resolution paths:
+
+1. Disadvantage on the bearer's attack rolls — the bias above, physical only in practice.
+2. **-2 to the saving throw difficulty the bearer imposes when attacking with magic.**
+
+```ts
+// src/combat/magic-attack.ts
+/** 8 + mod(magic), lowered by 2 while the ATTACKER is POISONED (decision G). */
+export const saveDifficultyFor = (attacker: Combatant): number =>
+  8 + modifier(attacker.magic) - (attacker.conditions.some((c) => c.type === 'POISONED') ? 2 : 0);
+
+export const resolveMagicAttack = (input: {
+  readonly attacker: Combatant;   // conditions read here: they are an input to the difficulty
+  readonly defender: Combatant;
+  readonly skill: CombatSkill;
+  readonly wardBonus: number;     // ARCANE_WARD, added to the defender's roll, not to the difficulty
+  readonly random: RandomSource;
+}): {
+  readonly difficulty: number;
+  readonly rolls: readonly number[];
+  readonly kept: number;
+  readonly savePassed: boolean;
+};
+```
+
+The attacker arrives as a whole `Combatant`, so the conditions travel with it and the
+signature does not grow a parallel argument. `saveDifficultyFor` reads the `conditions` array
+directly through the slice-1 `ActiveConditionState` union and imports nothing from slice 3 —
+the same discipline that lets `reduceDamage` read `dealerWeakened` from its context object
+without reaching into `conditions.ts`. `SAVE_ROLLED.difficulty` already carries whatever
+number was used, so the lowered difficulty is visible in the event stream with no type change.
+
+The -2 lands on the **difficulty**, never on the defender's roll, which keeps it distinct from
+`ARCANE_WARD`'s bonus and keeps both composable: a `POISONED` mage attacking a warded
+defender is simply a lower bar against a higher roll.
 
 ## Damage Arithmetic and the Rounding Order
 
@@ -287,8 +325,10 @@ sequenceDiagram
         R-->>T: ReactionBehavior or null (+ REACTION_IGNORED)
 
         Note over T,R: 1. defense modifiers - DODGE to armorClass, ARCANE_WARD to the save roll
-        T->>A: 2. resolve the action roll (bias from POISONED)
-        A-->>T: rolls, kept, targetValue, hit / savePassed, critical
+        T->>C: 2a. read the ACTOR's conditions
+        C-->>T: attack-roll bias, and -2 to the save difficulty while POISONED
+        T->>A: 2. resolve the action roll (actor conditions in)
+        A-->>T: rolls, kept, targetValue / difficulty, hit / savePassed, critical
         T->>D: 3. rollDamage(dice, bonus, critical)
         T->>D: 4. reduceDamage(raw, WEAKENED, save, PARRY/BRACE)
         D-->>T: final damage
@@ -313,8 +353,11 @@ Step details that the ordering alone does not carry:
   `ARCANE_WARD` adds `modifier(magic)` to the defender's save roll, not to the difficulty.
 - **Step 2** physical: `kept + modifier(resolvingAttribute)` versus the (possibly boosted)
   armor class; meeting it hits. A natural 20 hits and is critical; a natural 1 misses
-  regardless of the total. Magic: `saveDifficulty = 8 + modifier(magic)` of the attacker
-  against `d20 + modifier(constitution)` of the defender, with **no save critical** (R12).
+  regardless of the total (decision E, approved). Magic:
+  `saveDifficulty = 8 + modifier(magic)` of the attacker, **lowered by 2 while the attacker is
+  `POISONED`** (decision G), against `d20 + modifier(constitution)` of the defender, with
+  **no save critical** (R12). The difficulty therefore reads the *attacker's* conditions,
+  where every other step reads the defender's.
 - **Step 2, R14**: the resolving attribute is `skill.requiredAttribute`. `PRECISE_SHOT`
   therefore rolls and damages with dexterity. `resolution` is derived, not stored:
   `requiredAttribute === 'MAGIC' ? 'MAGIC' : 'PHYSICAL'`.
@@ -433,8 +476,8 @@ and no `.ts` file outside `src/`.
 | `src/combat/damage.spec.ts` | 2 | R15 doubling, save halving, and the fixed reduction order. |
 | `src/combat/physical-attack.ts` | 2 | `d20 + modifier(resolvingAttribute)` versus armor class, natural 20 and natural 1. |
 | `src/combat/physical-attack.spec.ts` | 2 | Hit, miss, critical, R14 dexterity resolution, boosted armor class. |
-| `src/combat/magic-attack.ts` | 2 | Save difficulty, the defender's save roll, `savePassed`, and no save critical (R12). |
-| `src/combat/magic-attack.spec.ts` | 2 | Save passed and failed, R12 natural 20 and 1 doing nothing. |
+| `src/combat/magic-attack.ts` | 2 | Save difficulty from the attacker's magic **and conditions** (decision G), the defender's save roll, `savePassed`, and no save critical (R12). |
+| `src/combat/magic-attack.spec.ts` | 2 | Save passed and failed, the `POISONED` -2 flipping a failed save into a passed one, R12 natural 20 and 1 doing nothing. |
 | `src/combat/conditions.ts` | 3 | Reading `POISONED`/`STUNNED`/`WEAKENED` effects, applying with refresh, and the tick. |
 | `src/combat/conditions.spec.ts` | 3 | R1, R2, R3, R16 refresh, expiry boundaries. |
 | `src/combat/reactions.ts` | 3 | `REACTION_TABLE`, applicability, defense bonus, mitigation spec, counter trigger. |
@@ -452,7 +495,7 @@ Each slice compiles, tests and reverts alone; every file above appears in exactl
 | Slice | Content | Independently landable because |
 |-------|---------|-------------------------------|
 | 1 | `types`, `arithmetic`, `random-source`, `derived-stats`, `d20` | Depends on nothing. `types.ts` declares the full vocabulary up front — including `MitigationSpec` and `ReactionBehavior` — so later slices add *producers*, never edit this file. |
-| 2 | `damage`, `physical-attack`, `magic-attack`, plus the `docs/design/overview.md` §2.3 edit | `reduceDamage` ships with its final signature and `mitigation: null`; slice 3 only starts passing a non-null value. No slice-2 file is reopened. |
+| 2 | `damage`, `physical-attack`, `magic-attack`, plus the `docs/design/overview.md` §2.3 edit | `reduceDamage` ships with its final signature and `mitigation: null`; slice 3 only starts passing a non-null value. `saveDifficultyFor` likewise ships reading the attacker's `conditions` array over slice-1 types, so decision G needs no slice-3 import. No slice-2 file is reopened. |
 | 3 | `conditions`, `reactions`, `round` | Pure readers and constants over slice-1 types; each is unit-testable with a hand-built `Combatant`, with no pipeline in sight. |
 | 4 | `turn` | Composition only. It imports slices 1–3 and adds no new rule. |
 
@@ -495,7 +538,7 @@ construction, no `@nestjs/testing` `TestingModule`.
 | Layer | What to test | Approach |
 |-------|--------------|----------|
 | Unit | Each module in isolation: rounding, derived stats, bias cancellation, hit/miss/critical, save pass/fail, each condition, each reaction against both applicable and non-applicable action types | `jest.fn()` `RandomSource`, hand-built `Combatant` literals |
-| Unit (composition) | The nine steps, the death short-circuit producing no counter-attack, the skipped turn row, `WEAKENED` + `PARRY` stacking, critical under advantage, `POISONED` on a reaction turn | `resolveTurn` with a scripted `SequenceRandomSource` |
+| Unit (composition) | The nine steps, the death short-circuit producing no counter-attack, the skipped turn row, `WEAKENED` + `PARRY` stacking, critical under advantage, `POISONED` on a reaction turn, a `POISONED` mage's lowered difficulty against a warded defender | `resolveTurn` with a scripted `SequenceRandomSource` |
 | Determinism | Identical inputs and identical script produce deep-equal results | Two `SequenceRandomSource` instances over the same array, compared with `toEqual` |
 | Contract | Engine enum unions stay assignable to and from the Prisma enums | One guard spec using a **type-only** import from `src/generated/prisma` |
 | Purity | No `@nestjs` import, no `@Injectable()`, no `combat.module.ts` under `src/combat/` | Verified by `pnpm lint` and `pnpm build`; asserted in review |
@@ -514,18 +557,36 @@ No migration required. No `prisma/schema.prisma` change and no new migration fil
 imports `src/combat/` until Phase 5, and no Nest module registers it, so a defect here cannot
 reach the running deployment. Rollback is `git revert` of the slice, or deleting the folder.
 
+## Decisions Ruled On by the User (E, F, G)
+
+Three of the points this document originally carried under `## Open Questions` were put to the
+user and ruled on. They are **approved rules now, not design calls**, and are not reopened
+here. Decisions E and F confirm what the design had inferred; decision G changes the rules.
+
+- **E — a natural 20 always hits, a natural 1 always misses (approved).** The design had
+  inferred this from R12's wording ("a natural 20 or 1 on a **save** does nothing special"),
+  which only reads as a carve-out if they do mean something on an attack roll. Confirmed
+  consequence: `DODGE` **cannot negate a critical**, because the natural 20 hits before armor
+  class is ever consulted. Hitting stays monotonic in the die.
+- **F — the round-start tick applies only to the acting combatant (approved).** `overview.md`
+  §4.6 names the owner for the reaction recharge and leaves the next line ownerless; both get
+  the same owner. "`POISONED` 3 rounds" therefore means "your next three turns", which is how
+  a player reads it, and it is why `startRound` takes a single `actor` rather than a roster.
+- **G — `POISONED` gains a second effect (approved, new rule).** `POISONED` previously only
+  imposed disadvantage on attack rolls, and magic makes no attack roll, so poisoning a magic
+  attacker did nothing. Rather than document that gap, the user closed it: `POISONED` now also
+  applies **-2 to the saving throw difficulty its bearer imposes when attacking with magic**,
+  giving `saveDifficulty = 8 + modifier(magic) - 2`. See
+  [`POISONED` and the Magic Save Difficulty](#poisoned-and-the-magic-save-difficulty-decision-g)
+  for the shape and the slice consequence. The reaction rule is unchanged: `COUNTER` and
+  `RIPOSTE` make no attack roll, so `POISONED`'s disadvantage still has nothing to bite on
+  there, and the -2 applies to magic attacks only, never to a counter-attack.
+
 ## Open Questions
 
 None blocking. The following points were **left open by the ruleset and decided here**; each
 is a design call, not an approved rule, and each is flagged for the oral defence:
 
-- [x] A natural 20 hits and is critical; a natural 1 misses regardless of the total. Inferred
-      from R12's wording ("a natural 20 or 1 on a **save** does nothing special"), which only
-      reads as a carve-out if they do mean something on an attack roll. `DODGE` therefore
-      cannot negate a critical, which keeps hitting monotonic in the die.
-- [x] The round-start tick is scoped to the **acting** combatant only. §4.6 states the owner
-      for the reaction recharge and leaves it unstated for the tick; scoping both to the actor
-      makes "`POISONED` 3 rounds" mean "your next three turns", which is how a player reads it.
 - [x] Counter-attacks (`COUNTER`, `RIPOSTE`) make **no attack roll**; R9 and R10 give a damage
       formula and no target number, so they land automatically.
 - [x] The death short-circuit skips step 8 as well as step 7 — no condition is applied to a
@@ -536,8 +597,6 @@ is a design call, not an approved rule, and each is flagged for the oral defence
       assignability spec.
 - [x] Critical is expressed as notation doubling with one `rollDice` call (D2).
 - [x] Halvings run before the flat `BRACE` subtraction (D4).
-- [x] `POISONED` has no effect on a magic attacker, because magic makes no attack roll.
-      Documented consequence, deliberately not patched.
 - [x] A declared reaction that is not applicable, not available, or suppressed by `STUNNED` is
       ignored with a `REACTION_IGNORED` event rather than raising an error (D7).
 
