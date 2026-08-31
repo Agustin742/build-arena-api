@@ -11,4 +11,5 @@ export * from './magic-attack';
 export * from './physical-attack';
 export * from './random-source';
 export * from './reactions';
+export * from './round';
 export * from './types';
