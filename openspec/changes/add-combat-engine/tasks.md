@@ -11,6 +11,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 | 1 | `feat/add-combat-engine` | ~130 (actual 330) | ~220 (actual 282) | 0 | ~350 (**actual 612**) | **No — 612 > 400** | **Yes, retroactively — see apply-progress** |
 | 2a/2b | `feat/combat-physical-attack` then `feat/combat-magic-attack` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
 | 3a | `feat/combat-conditions-reactions` | ~70 (actual 134: conditions.ts 71 + reactions.ts 63) | ~70 (actual 288: conditions.spec.ts 196 + reactions.spec.ts 92) | 0 | ~140 (**actual 424**) | **No — 424 > 400** | **Yes, retroactively — see apply-progress; needs split into 3a/3b** |
+| 3b | `feat/combat-round-tick` | n/a (actual 69: round.ts 68 + index.ts 1) | n/a (actual 136: round.spec.ts) | 0 | n/a (**actual 205 total / 69 logic-only, Engram 240 rule**) | **Yes — 69 logic lines under 400** | No |
 | 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
 | **Total** | | **~530** | **~940** | **~10** | **~1480** | — | — |
 
@@ -218,9 +219,9 @@ regression pin) NOT started.
       slices 1/2a/2b already merged) = 424 insertions, 0 deletions, 5 files — over the 400-line
       budget, decision returned to the user per the prompt's stop instruction.
 
-## Slice 3b — `feat/combat-round-tick` (base: `feat/combat-conditions-reactions`) — NOT STARTED
+## Slice 3b — `feat/combat-round-tick` (base: `feat/combat-conditions-reactions`) — COMPLETE
 
-- [ ] 3.5 Test: `src/combat/round.spec.ts` — Requirement "Round Start": "The tick reaches the
+- [x] 3.5 Test: `src/combat/round.spec.ts` — Requirement "Round Start": "The tick reaches the
       acting combatant's conditions only", "A duration counts the bearer's own turns" (Decision
       F); "An active condition ticks down"; "The acting combatant's reaction recharges" (Decision
       C). **Regression pin**: "A one-round condition still bites on the turn it was meant to
@@ -228,13 +229,24 @@ regression pin) NOT started.
       order explicitly, since decrement-then-remove would expire STUNNED/1 before it bites and
       make MIND_SPIKE inert (Engram 232, Engram 234 contradiction #1).
       commit: `test(combat): pin remove-then-decrement round start tick order`
-- [ ] 3.6 Impl: `src/combat/round.ts` — `startRound`: remove expired → decrement survivors →
+- [x] 3.6 Impl: `src/combat/round.ts` — `startRound`: remove expired → decrement survivors →
       recharge reaction, scoped to the acting combatant only. Decision C, Decision F.
       commit: `feat(combat): add pure round start state transition`
-- [ ] 3.7 Impl: `src/combat/index.ts` — extend with the `round.ts` export, completing the
+      Also emits `ROUND_STARTED { round, actorId }` as the tick's preamble event, the only use
+      of the `round` field in the design.md signature's `input.round`.
+- [x] 3.7 Impl: `src/combat/index.ts` — extend with the `round.ts` export, completing the
       slice-3 surface. No dedicated test (barrel).
       commit: `feat(combat): export slice three public surface from index`
-- [ ] 3.8 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 3b. No commit.
+- [x] 3.8 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 3b. No commit.
+      RESULT: `pnpm test` 14 suites, 116/116 tests pass (project-wide). `pnpm lint` clean, no
+      fixes needed. `pnpm build` exit 0, `dist/combat/round.js` present, no `dist/src/` nesting.
+      `rg "@nestjs" src/combat/` no matches. `rg "Math\.floor" src/combat/` confined to
+      `arithmetic.ts` and `random-source.ts` (D3 invariant holds).
+      **MEASURED, NOT ESTIMATED**: `git diff --shortstat feat/combat-conditions-reactions..HEAD`
+      = 205 insertions, 0 deletions, 3 files (round.ts, round.spec.ts, index.ts). Per Engram 240's
+      redefined budget rule (400-line budget measured on logic lines only, `*.spec.ts` excluded):
+      logic-only diff (excluding `round.spec.ts` and `tasks.md`) = 69 insertions, 2 files —
+      comfortably under the 400-line logic budget. No maintainer decision needed; no split.
 
 ## Slice 4 — `feat/combat-turn-pipeline` (base: `feat/combat-conditions-reactions`)
 
