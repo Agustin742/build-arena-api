@@ -1,4 +1,5 @@
 import { resolveTurn } from './turn';
+import { SequenceRandomSource } from './random-source';
 import type { RandomSource } from './random-source';
 import type { Combatant, CombatSkill, TurnInput } from './types';
 
@@ -603,5 +604,74 @@ describe('resolveTurn — step 9 emission, STUNNED skipping, and bias wiring', (
     expect(result.turns[0].attackRoll).toBe(5);
     expect(result.turns[0].critical).toBe(false);
     expect(result.turns[0].hit).toBe(false);
+  });
+});
+
+describe('resolveTurn — step 8 is the pipeline’s terminal roll boundary', () => {
+  const riposte: CombatSkill = {
+    code: 'RIPOSTE',
+    type: 'REACTION',
+    requiredAttribute: 'DEXTERITY',
+    damageDice: '1d8',
+    appliesCondition: 'WEAKENED',
+    conditionRounds: 2,
+  };
+
+  it(
+    'PIN: nothing rolls after step 8 — a scripted source with exactly the ' +
+      'pre-step-8 draws completes without exhausting, guarding R17 against a ' +
+      'future phase silently inserting a post-condition roll',
+    () => {
+      // Exactly two draws: the actor's missed attack roll, then RIPOSTE's
+      // 1d8 counter damage. If any code path rolled again after step 8
+      // (e.g. re-rolling something once WEAKENED lands), this scripted
+      // source would throw "exhausted" and this test would fail loudly —
+      // which is precisely the point: today nothing does.
+      const random = new SequenceRandomSource([3, 5]);
+      const actor = buildCombatant({ id: 'actor-1', strength: 10 });
+      const defender = buildCombatant({
+        id: 'defender-1',
+        armorClass: 18, // guarantees the natural 3 misses
+        dexterity: 12, // mod +1
+        currentHp: 30,
+      });
+      const input = buildInput({
+        actor,
+        defender,
+        reaction: { actorId: 'defender-1', skill: riposte },
+        random,
+      });
+
+      expect(() => resolveTurn(input)).not.toThrow();
+    },
+  );
+
+  it("RIPOSTE's WEAKENED does not rewrite the missed action it answered (R10, R17, R11)", () => {
+    const random = new SequenceRandomSource([3, 5]);
+    const actor = buildCombatant({ id: 'actor-1', strength: 10 });
+    const defender = buildCombatant({
+      id: 'defender-1',
+      armorClass: 18,
+      dexterity: 12, // mod +1
+      currentHp: 30,
+    });
+    const input = buildInput({
+      actor,
+      defender,
+      reaction: { actorId: 'defender-1', skill: riposte },
+      random,
+    });
+
+    const result = resolveTurn(input);
+
+    // The action's own record stays a miss with 0 damage — applying
+    // WEAKENED to the actor afterward (step 8) does not retroactively
+    // touch the row step 2-5 already finalized (R17).
+    expect(result.turns[0].hit).toBe(false);
+    expect(result.turns[0].damage).toBe(0);
+    expect(result.actor.conditions).toContainEqual({
+      type: 'WEAKENED',
+      roundsRemaining: 2,
+    });
   });
 });
