@@ -8,7 +8,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 
 | Slice | Branch | Code (est.) | Tests (est.) | Docs (est.) | Total | Fits 400? | Decision needed before apply |
 |---|---|---|---|---|---|---|---|
-| 1 | `feat/add-combat-engine` | ~130 | ~220 | 0 | ~350 | Yes | No |
+| 1 | `feat/add-combat-engine` | ~130 (actual 330) | ~220 (actual 282) | 0 | ~350 (**actual 612**) | **No — 612 > 400** | **Yes, retroactively — see apply-progress** |
 | 2 | `feat/combat-attack-resolution` | ~150 | ~240 | ~10 | ~400 | Yes (at budget) | No |
 | 3 | `feat/combat-conditions-reactions` | ~140 | ~240 | 0 | ~380 | Yes | No |
 | 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
@@ -39,40 +39,47 @@ Merge order to `main` is 1 → 2 → 3 → 4; each branch is cut from the previo
 
 ## Slice 1 — `feat/add-combat-engine` (base: `main`, current branch)
 
-- [ ] 1.1 Test: `src/combat/types.spec.ts` — guard spec, type-only import from
+- [x] 1.1 Test: `src/combat/types.spec.ts` — guard spec, type-only import from
       `src/generated/prisma`, mutual assignability of `ConditionType`/`AttributeKey`/`SkillKind`.
       No spec.md scenario; required by design.md Testing Strategy "Contract" row.
       commit: `test(combat): add prisma enum assignability guard spec`
-- [ ] 1.2 Impl: `src/combat/types.ts` — domain vocabulary (`Combatant`, `CombatSkill`,
+- [x] 1.2 Impl: `src/combat/types.ts` — domain vocabulary (`Combatant`, `CombatSkill`,
       `ActiveConditionState`, `DeclaredAction/Reaction`, `TurnRecord`, `CombatEvent`,
       `TurnInput/Resolution`, `MitigationSpec`, `ReactionBehavior`). R: whole vocabulary; D1, D5.
       commit: `feat(combat): add combat domain types`
-- [ ] 1.3 Test: `src/combat/arithmetic.spec.ts` — rounding at negative scores and odd values.
+- [x] 1.3 Test: `src/combat/arithmetic.spec.ts` — rounding at negative scores and odd values.
       No spec.md scenario; underlies R3, R5, R6, D3, D4.
       commit: `test(combat): cover arithmetic rounding invariants`
-- [ ] 1.4 Impl: `src/combat/arithmetic.ts` — `modifier`, `halve`, `clampDamage`. D3.
+- [x] 1.4 Impl: `src/combat/arithmetic.ts` — `modifier`, `halve`, `clampDamage`. D3.
       commit: `feat(combat): add rounding-safe arithmetic helpers`
-- [ ] 1.5 Test: `src/combat/random-source.spec.ts` — notation parsing, per-die draw counts,
+- [x] 1.5 Test: `src/combat/random-source.spec.ts` — notation parsing, per-die draw counts,
       `SequenceRandomSource` exhaustion. No spec.md scenario; D1, D8.
       commit: `test(combat): cover random source notation parsing and sequencing`
-- [ ] 1.6 Impl: `src/combat/random-source.ts` — `RandomSource`, `SystemRandomSource`,
+- [x] 1.6 Impl: `src/combat/random-source.ts` — `RandomSource`, `SystemRandomSource`,
       `SequenceRandomSource`. D1, D8.
       commit: `feat(combat): add injectable random source with deterministic replay`
-- [ ] 1.7 Test: `src/combat/derived-stats.spec.ts` — Requirement "Derived Stat Calculation":
+- [x] 1.7 Test: `src/combat/derived-stats.spec.ts` — Requirement "Derived Stat Calculation":
       scenario "Armor class and max HP from frozen attributes"; plus initiative per requirement text.
       commit: `test(combat): cover derived stat formulas`
-- [ ] 1.8 Impl: `src/combat/derived-stats.ts` — `armorClass`, `maxHp`, `initiative` (§4.1).
+- [x] 1.8 Impl: `src/combat/derived-stats.ts` — `armorClass`, `maxHp`, `initiative` (§4.1).
       commit: `feat(combat): compute derived stats from attributes`
-- [ ] 1.9 Test: `src/combat/d20.spec.ts` — Requirement "Advantage and Disadvantage": scenarios
+- [x] 1.9 Test: `src/combat/d20.spec.ts` — Requirement "Advantage and Disadvantage": scenarios
       "Advantage keeps the higher roll", "Disadvantage keeps the lower roll", "Advantage and
       disadvantage cancel". Decision D.
       commit: `test(combat): cover advantage disadvantage bias resolution`
-- [ ] 1.10 Impl: `src/combat/d20.ts` — `resolveBias`, `rollD20With`. Decision D.
+- [x] 1.10 Impl: `src/combat/d20.ts` — `resolveBias`, `rollD20With`. Decision D.
       commit: `feat(combat): add advantage and disadvantage bias resolution`
-- [ ] 1.11 Impl: `src/combat/index.ts` — barrel export of slice-1 surface. No dedicated test:
+- [x] 1.11 Impl: `src/combat/index.ts` — barrel export of slice-1 surface. No dedicated test:
       pure re-export, no behavior to fail against.
       commit: `feat(combat): export slice one public surface from index`
-- [ ] 1.12 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 1. No commit.
+- [x] 1.12 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 1. No commit.
+      RESULT: pnpm test 8/8 suites, 61/61 tests pass. pnpm lint clean (one real fix needed:
+      `RandomSource` switched from method-signature to function-typed properties to satisfy
+      `@typescript-eslint/unbound-method`, committed separately as
+      `fix(combat): use function-typed random source methods for lint`). pnpm build exit 0,
+      `dist/combat/` emitted correctly, no `dist/src/` nesting.
+      **BUDGET OVERRUN**: actual changed lines = 612 (all additions), vs. the ~350 forecast
+      and the 400-line hard budget in this prompt. See risks in apply-progress / return summary.
 
 ## Slice 2 — `feat/combat-attack-resolution` (base: `feat/add-combat-engine`)
 
