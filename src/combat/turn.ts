@@ -1,6 +1,12 @@
 import { modifier } from './arithmetic';
-import { attackBiasFor, isStunned, isWeakened } from './conditions';
-import { attributeOf, reduceDamage } from './damage';
+import {
+  applyCondition,
+  attackBiasFor,
+  conditionFromSkill,
+  isStunned,
+  isWeakened,
+} from './conditions';
+import { attributeOf, reduceDamage, rollDamage } from './damage';
 import { resolveMagicAttack } from './magic-attack';
 import { resolvePhysicalAttack } from './physical-attack';
 import { isApplicable, REACTION_TABLE } from './reactions';
@@ -69,7 +75,7 @@ const gateReaction = (
  */
 export const resolveTurn = (input: TurnInput): TurnResolution => {
   const { round, action, reaction, random } = input;
-  const actor = input.actor;
+  let actor = input.actor;
   let defender = input.defender;
   const events: CombatEvent[] = [];
 
@@ -217,12 +223,99 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
     currentHp: defenderHpAfter,
   });
 
-  // TODO (part B, tasks 4.3/4.4): step 6 death short-circuit, step 7
-  // counter-attack, step 8 condition application. Steps 6-8 are not wired
-  // yet; this stage only proves steps 1-5.
-  const defeatedId: string | null = null;
-  const counterDamage = 0;
-  const counterFired = false;
+  let defeatedId: string | null = null;
+  let counterDamage = 0;
+  let counterFired = false;
+
+  // Step 6 — the death short-circuit. No counter-attack, no condition.
+  if (defenderHpAfter <= 0) {
+    defeatedId = defender.id;
+    events.push({ type: 'COMBATANT_DEFEATED', combatantId: defender.id });
+  } else {
+    // Step 7 — counter-attack. COUNTER triggers on a hit, RIPOSTE on a
+    // miss (R9, R10); neither makes its own attack roll.
+    const counter = resolved?.behavior.counter ?? null;
+    if (counter && resolved) {
+      const shouldTrigger =
+        (counter.on === 'HIT' && hit) || (counter.on === 'MISS' && !hit);
+      if (shouldTrigger && resolved.declared.skill.damageDice) {
+        const counterRaw = rollDamage(
+          random,
+          resolved.declared.skill.damageDice,
+          modifier(attributeOf(defender, counter.bonusFrom)),
+          false,
+        );
+        counterDamage = reduceDamage(counterRaw, {
+          dealerWeakened: isWeakened(defender),
+          savePassed: false,
+          mitigation: null,
+          reactor: actor,
+        });
+        counterFired = true;
+        const actorHpAfter = Math.max(0, actor.currentHp - counterDamage);
+        actor = { ...actor, currentHp: actorHpAfter };
+        events.push({
+          type: 'COUNTER_ATTACKED',
+          actorId: defender.id,
+          skillCode: resolved.declared.skill.code,
+          damage: counterDamage,
+        });
+        events.push({
+          type: 'DAMAGE_APPLIED',
+          targetId: actor.id,
+          amount: counterDamage,
+          currentHp: actorHpAfter,
+        });
+      }
+    }
+
+    // Step 8 — apply conditions. The action's own condition lands only on
+    // a hit (physical) or a failed save (magic), both already folded into
+    // `hit` (R13). RIPOSTE's WEAKENED is read the same way, from the
+    // reaction's own seeded `Skill` row, never hardcoded by reaction code
+    // — applied here, strictly after step 7's counter damage is already
+    // finalized, so it cannot retroactively change that value.
+    if (hit) {
+      const condition = conditionFromSkill(action.skill);
+      if (condition) {
+        const { combatant: updatedDefender, refreshed } = applyCondition(
+          defender,
+          { type: condition.type, roundsRemaining: condition.rounds },
+        );
+        defender = updatedDefender;
+        events.push({
+          type: 'CONDITION_APPLIED',
+          combatantId: defender.id,
+          condition: condition.type,
+          rounds: condition.rounds,
+          refreshed,
+        });
+      }
+    }
+
+    if (counterFired && resolved) {
+      const counterCondition = conditionFromSkill(resolved.declared.skill);
+      if (counterCondition) {
+        const { combatant: updatedActor, refreshed } = applyCondition(actor, {
+          type: counterCondition.type,
+          roundsRemaining: counterCondition.rounds,
+        });
+        actor = updatedActor;
+        events.push({
+          type: 'CONDITION_APPLIED',
+          combatantId: actor.id,
+          condition: counterCondition.type,
+          rounds: counterCondition.rounds,
+          refreshed,
+        });
+      }
+    }
+  }
+  // Step 8 is this pipeline's terminal roll boundary: nothing below this
+  // point calls `random` or re-reads a just-applied condition, which is
+  // what makes R17 hold structurally rather than by convention alone. A
+  // future phase inserting a post-condition roll here would need to widen
+  // this comment and re-examine `turn.spec.ts`'s "step eight terminal" pin.
 
   // Step 9 — always emit exactly two rows: the action, then the reaction
   // (sequence 1 and 2), matching `BattleTurn.@@unique([battleId, round,
