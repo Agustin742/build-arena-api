@@ -9,7 +9,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 | Slice | Branch | Code (est.) | Tests (est.) | Docs (est.) | Total | Fits 400? | Decision needed before apply |
 |---|---|---|---|---|---|---|---|
 | 1 | `feat/add-combat-engine` | ~130 (actual 330) | ~220 (actual 282) | 0 | ~350 (**actual 612**) | **No — 612 > 400** | **Yes, retroactively — see apply-progress** |
-| 2 | `feat/combat-attack-resolution` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
+| 2a/2b | `feat/combat-physical-attack` then `feat/combat-magic-attack` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
 | 3 | `feat/combat-conditions-reactions` | ~140 | ~240 | 0 | ~380 | Yes | No |
 | 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
 | **Total** | | **~530** | **~940** | **~10** | **~1480** | — | — |
@@ -81,7 +81,11 @@ Merge order to `main` is 1 → 2 → 3 → 4; each branch is cut from the previo
       **BUDGET OVERRUN**: actual changed lines = 612 (all additions), vs. the ~350 forecast
       and the 400-line hard budget in this prompt. See risks in apply-progress / return summary.
 
-## Slice 2 — `feat/combat-attack-resolution` (base: `feat/add-combat-engine`)
+## Slice 2a — `feat/combat-physical-attack` (base: `feat/add-combat-engine`)
+
+Split from the original slice 2 at the physical/magic boundary: the physical side
+alone measured 446 changed lines against the 400 budget. Tasks 2.5 to 2.9 moved to
+slice 2b below. Landed as its own pull request with an accepted `size:exception`.
 
 **BUDGET STOP at the physical/magic boundary (see apply-progress).** Physical side
 (2.1-2.4, plus a partial `index.ts` export so the checkpoint stays independently
@@ -141,7 +145,12 @@ made here, per the tasks.md instruction to stop at this boundary.
       commit: `feat(combat): export slice two public surface from index`
 - [ ] 2.9 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 2. No commit.
 
-## Slice 3 — `feat/combat-conditions-reactions` (base: `feat/combat-attack-resolution`)
+## Slice 2b — `feat/combat-magic-attack` (base: `feat/combat-physical-attack`)
+
+Magic attack resolution with the saving throw, the `docs/design/overview.md` §2.3 edit,
+and the magic half of the `index.ts` surface. Tasks 2.5 to 2.9.
+
+## Slice 3 — `feat/combat-conditions-reactions` (base: `feat/combat-magic-attack`)
 
 - [ ] 3.1 Test: `src/combat/conditions.spec.ts` — POISONED: "A poisoned attacker rolls with
       disadvantage" (composed with slice-1 `d20.ts` + slice-2 `physical-attack.ts`), "The -2
