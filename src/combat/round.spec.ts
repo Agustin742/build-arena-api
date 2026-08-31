@@ -40,7 +40,7 @@ describe('startRound', () => {
     ]);
   });
 
-  it('consumes a duration over the bearer\'s own turns: POISONED/3 bites for three turns before it expires', () => {
+  it("consumes a duration over the bearer's own turns: POISONED/3 bites for three turns before it expires", () => {
     const actor = buildCombatant({
       conditions: [{ type: 'POISONED', roundsRemaining: 3 }],
     });
