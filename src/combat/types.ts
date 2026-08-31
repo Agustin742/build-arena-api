@@ -47,7 +47,17 @@ export type DeclaredReaction = {
   readonly skill: CombatSkill;
 };
 
-/** = BattleTurn minus `id`, `battleId`, `createdAt` (all database-owned). */
+/**
+ * = BattleTurn minus `id`, `battleId`, `createdAt` (all database-owned),
+ * plus one engine-only field: `skipped`.
+ *
+ * `skipped` has no `BattleTurn` column and is never mapped by Phase 5's
+ * field copy, exactly like `CombatEvent` has no persisted counterpart — it
+ * exists so a STUNNED-caused row (R2, Decision B) is unambiguous to a
+ * caller that only has the returned `TurnResolution` in hand, without
+ * requiring a `prisma/schema.prisma` migration. `skillCode: null` alone
+ * remains sufficient to identify a lost turn once persisted.
+ */
 export type TurnRecord = {
   readonly round: number;
   readonly sequence: number;
@@ -59,6 +69,7 @@ export type TurnRecord = {
   readonly hit: boolean | null;
   readonly critical: boolean;
   readonly damage: number;
+  readonly skipped?: boolean;
 };
 
 export type CombatEvent =

@@ -12,7 +12,7 @@ Strict TDD: every implementation task is preceded by the task that writes its fa
 | 2a/2b | `feat/combat-physical-attack` then `feat/combat-magic-attack` | ~150 (physical actual 124: damage.ts 72 + physical-attack.ts 50 + index.ts 2) | ~240 (physical actual 322: damage.spec.ts 181 + physical-attack.spec.ts 141) | ~10 | ~400 (**physical checkpoint actual 446**) | **No — 446 > 400 at the physical/magic boundary** | **Yes, retroactively — see apply-progress; needs split into 2a/2b** |
 | 3a | `feat/combat-conditions-reactions` | ~70 (actual 134: conditions.ts 71 + reactions.ts 63) | ~70 (actual 288: conditions.spec.ts 196 + reactions.spec.ts 92) | 0 | ~140 (**actual 424**) | **No — 424 > 400** | **Yes, retroactively — see apply-progress; needs split into 3a/3b** |
 | 3b | `feat/combat-round-tick` | n/a (actual 69: round.ts 68 + index.ts 1) | n/a (actual 136: round.spec.ts) | 0 | n/a (**actual 205 total / 69 logic-only, Engram 240 rule**) | **Yes — 69 logic lines under 400** | No |
-| 4 | `feat/combat-turn-pipeline` | ~110 | ~240 | 0 | ~350 | Yes | No |
+| 4 | `feat/combat-turn-pipeline` | ~110 (actual 370 logic: turn.ts 357 + types.ts 13 + index.ts 1) | ~240 (actual 754: turn.spec.ts) | 0 | ~350 (**actual 1124 total / 370 logic-only, Engram 240 rule**) | **Yes — 370 logic lines under 400** | No |
 | **Total** | | **~530** | **~940** | **~10** | **~1480** | — | — |
 
 Decision needed before apply: No
@@ -250,17 +250,17 @@ regression pin) NOT started.
 
 ## Slice 4 — `feat/combat-turn-pipeline` (base: `feat/combat-conditions-reactions`)
 
-- [ ] 4.1 Test: `src/combat/turn.spec.ts` (part A) — Requirement "Nine-Step Turn Resolution":
+- [x] 4.1 Test: `src/combat/turn.spec.ts` (part A) — Requirement "Nine-Step Turn Resolution":
       "Step 1 — defense modifiers apply before the roll", "Step 2 — action roll uses the
       modified armor class", "Step 3 — damage calculated only after a confirmed hit", "Step 4 —
       mitigation applies to the calculated damage", "Step 5 — HP reduced by the mitigated value"
       (R11); combat-reactions "DODGE raises the effective armor class for one attack" (R7),
       "ARCANE_WARD raises the save total" (R8).
       commit: `test(combat): cover pipeline defense modifiers through hp subtraction`
-- [ ] 4.2 Impl: `src/combat/turn.ts` (part A) — steps 1-5: defense modifier application, action
+- [x] 4.2 Impl: `src/combat/turn.ts` (part A) — steps 1-5: defense modifier application, action
       roll, damage calc, mitigation, HP subtraction. R7, R8, R11 (steps 1-5).
       commit: `feat(combat): compose defense modifiers through hp subtraction`
-- [ ] 4.3 Test: `src/combat/turn.spec.ts` (part B) — "Step 6 — death short-circuits before any
+- [x] 4.3 Test: `src/combat/turn.spec.ts` (part B) — "Step 6 — death short-circuits before any
       counter-attack", "Step 7 — counter-attack resolves only after confirming survival", "Step
       8 — conditions applied after the counter-attack completes" (R11); combat-reactions
       "COUNTER returns damage after taking a hit", "POISONED does not alter a COUNTER
@@ -268,41 +268,76 @@ regression pin) NOT started.
       (R10); combat-conditions "Failed save applies the condition", "Successful save does not
       apply the condition" (R13).
       commit: `test(combat): cover death short circuit counter attacks and condition application`
-- [ ] 4.4 Impl: `src/combat/turn.ts` (part B) — steps 6-8: death short-circuit (no step 7/8 on
+- [x] 4.4 Impl: `src/combat/turn.ts` (part B) — steps 6-8: death short-circuit (no step 7/8 on
       defeat), COUNTER/RIPOSTE counter-attack, step-8 condition application gated by R13.
       R1, R9, R10, R11 (steps 6-8), R13.
       commit: `feat(combat): add death short circuit counter attacks and condition step`
-- [ ] 4.5 Test: `src/combat/turn.spec.ts` (part C) — "Step 9 — exactly two turn results are
+- [x] 4.5 Test: `src/combat/turn.spec.ts` (part C) — "Step 9 — exactly two turn results are
       always emitted" (R11); combat-conditions "A stunned actor's action is recorded as
       skipped, not empty", "A stunned defender cannot use a reaction" (R2, Decision B);
       combat-resolution "Advantage can only raise the critical chance, never lower it"
       (composition-level: bias + critical wiring).
       commit: `test(combat): cover two-row emission and stunned turn skipping`
-- [ ] 4.6 Impl: `src/combat/turn.ts` (part C) — step 9 two-row emission, STUNNED skip path,
+- [x] 4.6 Impl: `src/combat/turn.ts` (part C) — step 9 two-row emission, STUNNED skip path,
       advantage/critical wiring through the pipeline. R2, R11 (step 9); Decision B, Decision D.
       commit: `feat(combat): emit two turn rows and skip stunned turns`
-- [ ] 4.7 Test: `src/combat/turn.spec.ts` (part D) — **step-8-terminal pin**: asserts no roll is
+      **NO SEPARATE COMMIT**: parts A and B (4.2, 4.4) already composed the STUNNED
+      short-circuit, the always-two-rows emission, and the bias/critical wiring — part C's
+      tests ran GREEN on first write against the existing implementation. Verified this was
+      not a false negative by inspection of `turn.ts`'s STUNNED branch and step-9 emission,
+      both present since 4.2/4.4. No `turn.ts` diff exists for this task.
+- [x] 4.7 Test: `src/combat/turn.spec.ts` (part D) — **step-8-terminal pin**: asserts no roll is
       made after step 8/condition application in `resolveTurn`, guarding the design-flagged risk
       that R17 currently holds only because nothing rolls after step 8 — a future phase inserting
       a post-condition roll would silently break it with no failing test today; combat-conditions
       "A same-round reaction is unaffected by a condition just applied" (R17); combat-turn-pipeline
       "RIPOSTE's WEAKENED does not rewrite the missed action it answered" (R10, R17, R11).
       commit: `test(combat): pin step eight as terminal to guard r17`
-- [ ] 4.8 Impl: `src/combat/turn.ts` (part D) — satisfy the step-8-terminal pin; add an inline
+- [x] 4.8 Impl: `src/combat/turn.ts` (part D) — satisfy the step-8-terminal pin; add an inline
       comment anchoring step 8 as the pipeline's terminal roll boundary for future phases. R17.
       commit: `feat(combat): anchor step eight as the pipeline's terminal roll boundary`
-- [ ] 4.9 Test: `src/combat/turn.spec.ts` (part E) — determinism: two `SequenceRandomSource`
+      **NO SEPARATE COMMIT**: the anchor comment ("Step 8 is this pipeline's terminal roll
+      boundary...") was already added in part B's commit (4.4), since it lives at the exact
+      point steps 6-8 end. The pin was verified genuinely load-bearing: a temporary sabotage
+      edit inserting `random.rollD20()` immediately after step 8 was added, confirmed to make
+      4 tests fail with `SequenceRandomSource exhausted`, then reverted (`git diff` empty
+      afterward, no residue).
+- [x] 4.9 Test: `src/combat/turn.spec.ts` (part E) — determinism: two `SequenceRandomSource`
       instances over the same script produce deep-equal `resolveTurn` results (design.md Testing
       Strategy "Determinism" row).
       commit: `test(combat): cover deterministic replay with fixed random sequence`
-- [ ] 4.10 Impl: `src/combat/turn.ts` (part E) — confirm `resolveTurn` purity (no shared mutable
+- [x] 4.10 Impl: `src/combat/turn.ts` (part E) — confirm `resolveTurn` purity (no shared mutable
       state across calls); supports proposal Success Criteria "identical inputs always produce
       identical turn results".
       commit: `feat(combat): guarantee resolveTurn purity for deterministic replay`
-- [ ] 4.11 Impl: `src/combat/index.ts` — export `resolveTurn` as the final public entry point.
+      **NO SEPARATE COMMIT**: `resolveTurn` never mutates its input — every step reassigns a
+      local `actor`/`defender` binding via object-spread copies, and `input.actor`/
+      `input.defender` themselves are never written to. Purity was a property of the design
+      from 4.2 onward, not something 4.10 needed to add; the determinism test and the explicit
+      non-mutation test both passed on first write.
+- [x] 4.11 Impl: `src/combat/index.ts` — export `resolveTurn` as the final public entry point.
       No dedicated test (barrel).
       commit: `feat(combat): export resolve turn as the public engine entry point`
-- [ ] 4.12 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 4. No commit.
+- [x] 4.12 Verify: `pnpm test`, `pnpm lint`, `pnpm build` — gate before opening PR 4. No commit.
+      RESULT: `pnpm test` 15 suites, 139/139 tests pass (project-wide, up from 116). `pnpm
+      lint` clean, zero fixes needed. `pnpm build` exit 0, `dist/combat/turn.js` present, no
+      `dist/src/` nesting. `rg "@nestjs"` / `rg "@Injectable"` / `find *.module.ts` under
+      `src/combat/` — no matches. `rg "Math\.floor" src/combat/` confined to `arithmetic.ts`
+      and `random-source.ts` (D3 invariant holds after slice 4).
+      **MEASURED, NOT ESTIMATED, under the Engram-240 logic-only budget rule**: `git diff
+      --shortstat feat/combat-round-tick..HEAD` = 1124 insertions, 1 deletion, 4 files (total,
+      including `turn.spec.ts`). Excluding `turn.spec.ts` and this `tasks.md` edit (logic-only,
+      per Engram 240): 370 insertions, 1 deletion, 3 files (`turn.ts` 357 + `types.ts` 13
+      net + `index.ts` 1) — under the 400-logic-line budget. No maintainer decision needed,
+      no split.
+      **DEVIATION FROM DESIGN.MD (spec wins, same precedent as Engram 238's BRACE fix)**: added
+      an engine-only `skipped?: boolean` field to `TurnRecord` in `types.ts` — design.md's own
+      skipped-row snippet omits it, relying on `skillCode: null` alone to be "self-describing."
+      But `combat-conditions/spec.md`'s own literal wording for both STUNNED scenarios states
+      `skipped: true` explicitly as part of the required shape, and the maintainer's prompt
+      independently confirmed this as a settled rule. Resolved in favor of the spec's literal
+      text: `skipped` has no `BattleTurn` column and Phase 5 will not persist it, exactly like
+      `CombatEvent` has no persisted counterpart — no `prisma/schema.prisma` change needed.
 
 ---
 
