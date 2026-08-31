@@ -1,17 +1,17 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:a6c4782ef754ac362ea838559a6cf397a9d61fb8f9c7ba25397b724869b54b5b
-verdict: fail
-blockers: 2
-critical_findings: 2
-requirements: 19/21
-scenarios: 51/53
+evidence_revision: sha256:d9a6ced2c6cbce6bfaf7d4ad4b06717746e60f49c1c1bd3312c8ba10e0128345
+verdict: pass
+blockers: 0
+critical_findings: 0
+requirements: 21/21
+scenarios: 53/53
 test_command: pnpm test
 test_exit_code: 0
-test_output_hash: sha256:442914dd1316986de21b837c807c8d150e598fc16de672276840e7c53b3fb1f8
+test_output_hash: sha256:0b00c769ef436f129027ea80daec335981590519351a9c71393eb7fea495e171
 build_command: pnpm build
 build_exit_code: 0
-build_output_hash: sha256:c698e8f716bc4ce5b0b089099072037114257345393cd80c5c8d35c76551b65f
+build_output_hash: sha256:e6e853208d87502ddef751ad159d4be8961b361ba633cf9202bd527fd8659d4f
 ```
 
 ## Verification Report
@@ -19,6 +19,17 @@ build_output_hash: sha256:c698e8f716bc4ce5b0b089099072037114257345393cd80c5c8d35
 **Change**: add-combat-engine (Phase 3)
 **Version**: N/A (delta specs, no prior baseline in openspec/specs/)
 **Mode**: Strict TDD
+**Re-verification**: scoped delta re-verification of the two prior CRITICAL findings, the PR #22
+move-only reorganization, and the four hard invariant/build checks. This supersedes the fail
+verdict recorded in the previous pass; the 51 scenarios previously graded COMPLIANT were not
+re-audited and remain trusted from that pass.
+
+### History of this report
+
+| Pass | Verdict | Critical findings | Note |
+|---|---|---|---|
+| 1 (this file, prior version) | FAIL | 2 | Two UNTESTED spec scenarios: combat-resolution "Advantage can only raise the critical chance, never lower it" and combat-conditions R17 "A same-round reaction is unaffected by a condition just applied." |
+| 2 (this pass) | PASS | 0 | Both findings closed by commit 6ee4b1b (test(combat): cover advantage criticals and same round condition), merged in PR #21. Structure re-confirmed intact after the move-only src/combat/ reorganization in commit 08a2e80 (PR #22). |
 
 ### Completeness
 
@@ -28,13 +39,14 @@ build_output_hash: sha256:c698e8f716bc4ce5b0b089099072037114257345393cd80c5c8d35
 | Tasks complete | 42 |
 | Tasks incomplete | 0 |
 
-Note: cumulative apply-progress narrative (Engram #236) and the tasks artifact mirror (Engram
-#235) both quote a "47" total elsewhere in prose; the actual openspec/changes/add-combat-engine/tasks.md
-file on disk contains exactly 42 checkbox items (- [x]), and all 42 are checked, 0 unchecked.
-This is a documentation-count drift across memos, not an incomplete-task defect -- every checkbox
-present in the authoritative file is done. Flagged as SUGGESTION below.
+Note (carried from the prior pass, not re-audited): cumulative apply-progress narrative
+(Engram #236) and the tasks artifact mirror (Engram #235) both quote task-count prose elsewhere
+that does not match the file; the authoritative openspec/changes/add-combat-engine/tasks.md file
+on disk contains exactly 42 checkbox items, all checked, 0 unchecked. Not a completion defect.
+Still flagged as SUGGESTION below, unchanged from the prior pass since it was outside this
+re-verification's scope.
 
-### Build and Tests Execution
+### Build and Tests Execution (re-run this pass)
 
 **Build**: PASSED
 ```text
@@ -45,214 +57,169 @@ Prisma schema loaded from prisma\schema.prisma.
 Generated Prisma Client (7.10.0) to .\src\generated\prisma
 Exit code: 0
 ```
-dist/main.js exists. dist/src/ does not exist (confirmed via ls). dist/combat/ contains
-one compiled .js/.d.ts pair per src/combat/*.ts module (14 modules), no nested src/.
+dist/main.js exists. dist/src/ does not exist (confirmed). dist/combat/ now mirrors the
+PR #22 reorganization -- attack/, core/, state/ subfolders plus turn.js/types.js/
+index.js at the top level -- matching src/combat/'s new layout 1:1. No dist/src/ nesting
+was introduced by the refactor.
 
-**Tests**: 139 passed / 0 failed / 0 skipped, across 15 suites
+**Tests**: 141 passed / 0 failed / 0 skipped, across 15 suites (up from 139/139/15 in the prior
+pass -- the two new closing tests)
 ```text
 $ pnpm test
 $ jest
 Test Suites: 15 passed, 15 total
-Tests:       139 passed, 139 total
+Tests:       141 passed, 141 total
 Snapshots:   0 total
-Time:        5.006 s
+Time:        6.301 s
+Ran all test suites.
+Exit code: 0
 ```
 
 **Lint**: pnpm lint -- exit 0, zero fixes required, git status --short empty afterward (no
 residual changes from --fix).
 
 **Coverage**: not requested/available via a dedicated coverage command in this run; not run.
-Reported as "Coverage analysis skipped -- no coverage command executed" per graceful handling.
+Reported as "Coverage analysis skipped -- no coverage command executed" per graceful handling
+(unchanged from the prior pass).
 
-### Hard Invariant Checks (real command output)
+### Hard Invariant Checks (real command output, re-run this pass)
 
 ```text
 $ rg "@nestjs|@Injectable" src/combat/
 (no output, exit 1 -- zero matches, invariant holds)
 
-$ rg "Math\.floor" src/combat/
-src/combat/random-source.ts:    return Math.floor(Math.random() * faces) + 1;
-src/combat/arithmetic.ts: * other Math.floor under src/combat/ lives in random-source.ts, for
-src/combat/arithmetic.ts:export const modifier = (score: number): number => Math.floor((score - 10) / 2);
-src/combat/arithmetic.ts:export const halve = (value: number): number => Math.floor(value / 2);
-(confined to arithmetic.ts and random-source.ts -- invariant holds)
+$ rg "Math.floor" src/combat/
+src/combat/core/arithmetic.ts (comment: other Math.floor under src/combat/ lives in random-source.ts)
+src/combat/core/arithmetic.ts: modifier = Math.floor((score - 10) / 2)
+src/combat/core/arithmetic.ts: halve = Math.floor(value / 2)
+src/combat/core/random-source.ts: Math.floor(Math.random() * faces) + 1
+(confined to core/arithmetic.ts and core/random-source.ts -- invariant holds after the PR #22 move)
 ```
 
-### Spec Compliance Matrix
+Both invariants held in the prior pass when the files lived flat under src/combat/; both still
+hold now that arithmetic.ts and random-source.ts live under src/combat/core/. No new
+Math.floor or NestJS/DI usage was introduced anywhere else in src/combat/.
 
-Legend: COMPLIANT (covering test passed at runtime) / UNTESTED (no covering test found).
+### Reorganization Regression Check (PR #22, commit 08a2e80)
 
-#### combat-resolution (5 requirements / 16 scenarios)
+| Check | Result |
+|---|---|
+| Same modules exist, only regrouped | CONFIRMED. src/combat/attack/damage,magic-attack,physical-attack.ts, src/combat/core/arithmetic,d20,derived-stats,random-source.ts, src/combat/state/conditions,reactions,round.ts, plus turn.ts/types.ts/index.ts at the top level. Every module named in the design's File Layout table is present, just under a subfolder. |
+| Barrel index.ts still exports everything | CONFIRMED. export star from statements for all 12 modules are present and unchanged in intent (only import paths were updated to the new subfolders). |
+| Behavior unchanged (move-only) | CONFIRMED. git log --oneline shows 08a2e80 as a single "regroup engine modules" commit; pnpm test still passes 141/141 (139 pre-existing + 2 new from 6ee4b1b, both merged before the move); pnpm build and pnpm lint are clean; the six source-level rule checks from the prior pass (round-start tick order, critical doubling, BRACE floor, POISONED save-difficulty scoping, natural 20/1 pre-AC resolution, no-COUNTER-on-death) were re-read at their new paths (src/combat/state/round.ts, src/combat/attack/damage.ts, src/combat/attack/magic-attack.ts, src/combat/attack/physical-attack.ts, src/combat/turn.ts) and are textually identical to the versions graded CORRECT in the prior pass. |
+| Invariants (nestjs/Injectable, confined Math.floor) | CONFIRMED, see Hard Invariant Checks above. |
 
-| Requirement | Scenario | Test | Result |
-|---|---|---|---|
-| Derived Stat Calculation | Armor class and max HP from frozen attributes | derived-stats.spec.ts > armorClass/maxHp "matches the spec scenario..." | COMPLIANT |
-| Physical Attack Resolution vs AC | Hit with POWER_STRIKE | physical-attack.spec.ts > "hits and deals damage when the target value meets armor class" | COMPLIANT |
-| Physical Attack Resolution vs AC | Miss with POWER_STRIKE | physical-attack.spec.ts > "misses and rolls no damage dice when the total falls short" | COMPLIANT |
-| Physical Attack Resolution vs AC | Natural 20 is an automatic critical hit | physical-attack.spec.ts > "a natural 20 is an automatic critical hit even against a high armor class (Decision E)" | COMPLIANT |
-| Physical Attack Resolution vs AC | Natural 1 is an automatic miss | physical-attack.spec.ts > "a natural 1 is an automatic miss even when the total would meet armor class (Decision E)" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | Failed save takes full damage | magic-attack.spec.ts > "fails a save that falls short and takes full damage on the failed save" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | Successful save halves damage, rounding down | magic-attack.spec.ts > "halves damage, rounding down, on a save that meets the difficulty" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | Natural 20 save is an ordinary success | magic-attack.spec.ts > "treats a natural 20 save as an ordinary success, with no special negation (R12/Decision 4)" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | Natural 1 save is an ordinary failure | magic-attack.spec.ts > "treats a natural 1 save as an ordinary failure, with no special critical failure (R12/Decision 4)" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | A POISONED attacker lowered difficulty turns a failed save into a successful one | magic-attack.spec.ts > "turns a failed save into a successful one when the attacker is POISONED (Decision G)" | COMPLIANT |
-| Magic Attack Resolution via Saving Throw | The POISONED penalty lowers the difficulty imposed, never a save the bearer makes | magic-attack.spec.ts > "never lowers the difficulty from the defender being POISONED, only from the attacker (Decision G)" | COMPLIANT |
-| Advantage and Disadvantage | Advantage keeps the higher roll | d20.spec.ts > "keeps the higher roll under ADVANTAGE" | COMPLIANT |
-| Advantage and Disadvantage | Disadvantage keeps the lower roll | d20.spec.ts > "keeps the lower roll under DISADVANTAGE" | COMPLIANT |
-| Advantage and Disadvantage | Advantage and disadvantage cancel | d20.spec.ts > "resolveBias cancellation collapses ADVANTAGE+DISADVANTAGE into a single roll via rollD20With" | COMPLIANT |
-| Advantage and Disadvantage | Advantage can only raise the critical chance, never lower it | (none found) | UNTESTED |
-| Resolving Attribute (R14) | PRECISE_SHOT resolves with dexterity, not strength | physical-attack.spec.ts > "resolves PRECISE_SHOT with dexterity, not strength (R14)" | COMPLIANT |
+No regression found from the reorganization.
 
-#### combat-conditions (7 requirements / 16 scenarios)
+### Spec Compliance Matrix -- delta only (the two previously UNTESTED scenarios)
 
-| Requirement | Scenario | Test | Result |
-|---|---|---|---|
-| POISONED Disadvantage + Save Difficulty (R1, Decision G) | A poisoned attacker rolls with disadvantage | conditions.spec.ts > "gives a poisoned attacker disadvantage on physical attack rolls (R1)" | COMPLIANT |
-| POISONED Disadvantage + Save Difficulty (R1, Decision G) | A poisoned magic attacker imposes a difficulty lowered by 2 | magic-attack.spec.ts > "is lowered by 2 while the attacker is POISONED (Decision G)" | COMPLIANT |
-| POISONED Disadvantage + Save Difficulty (R1, Decision G) | The -2 never reaches a physical attack | conditions.spec.ts > "never lowers the target armor class for a poisoned physical attacker (R1, Decision G)" | COMPLIANT |
-| STUNNED Removes Action and Reaction (R2, Decision B) | A stunned actor action is recorded as skipped, not empty | turn.spec.ts > "a stunned actor's action is recorded as skipped, not empty (R2, Decision B)" | COMPLIANT |
-| STUNNED Removes Action and Reaction (R2, Decision B) | A stunned defender cannot use a reaction | turn.spec.ts > "a stunned defender cannot use a reaction: PARRY is ignored and its mitigation does not apply" | COMPLIANT |
-| WEAKENED Halves Damage Dealt (R3) | A weakened attacker deals half damage | damage.spec.ts > "halves damage for a WEAKENED dealer (R3)" | COMPLIANT |
-| Magic Skill Condition on Failed Save (R13) | Failed save applies the condition | turn.spec.ts > "failed save applies the condition to the defender (R13)" | COMPLIANT |
-| Magic Skill Condition on Failed Save (R13) | Successful save does not apply the condition | turn.spec.ts > "a successful save does not apply the condition, even though half damage still lands (R13)" | COMPLIANT |
-| Re-applying Refreshes Duration (R16) | A near-expiring condition is refreshed, not stacked | conditions.spec.ts > "refreshes roundsRemaining instead of stacking a second entry (R16)" | COMPLIANT |
-| Condition Applied Mid-Round Has No Effect That Round (R17) | A same-round reaction is unaffected by a condition just applied | (none found -- see gap note below) | UNTESTED |
-| Round Start Is a Pure Function (Decision C, F) | The tick reaches the acting combatant conditions only | round.spec.ts > "reaches the acting combatant conditions only, leaving the opponent untouched (Decision F)" | COMPLIANT |
-| Round Start Is a Pure Function (Decision C, F) | A duration counts the bearer own turns | round.spec.ts > "consumes a duration over the bearer's own turns: POISONED/3 bites for three turns before it expires" | COMPLIANT |
-| Round Start Is a Pure Function (Decision C, F) | An active condition ticks down | round.spec.ts > "ticks an active condition down by one and keeps it active" | COMPLIANT |
-| Round Start Is a Pure Function (Decision C, F) | A one-round condition still bites on the turn it was meant to cost | round.spec.ts > "REGRESSION (remove-then-decrement...): a one-round condition still bites on the turn it was meant to cost..." | COMPLIANT |
-| Round Start Is a Pure Function (Decision C, F) | A condition expires at the following round start | round.spec.ts > "expires a condition at the following round start once it already reached zero" | COMPLIANT |
-| Round Start Is a Pure Function (Decision C, F) | The acting combatant reaction recharges | round.spec.ts > "recharges the acting combatant reaction (Decision C)" | COMPLIANT |
+Legend: COMPLIANT (covering test passed at runtime) / UNTESTED (no covering test found). The
+remaining 51 scenarios were graded in the prior pass and are not re-audited here.
 
-#### combat-reactions (7 requirements / 11 scenarios) -- all COMPLIANT
+| Requirement | Scenario | Test | Result (prior) | Result (this pass) |
+|---|---|---|---|---|
+| Advantage and Disadvantage | Advantage can only raise the critical chance, never lower it | physical-attack.spec.ts: "advantage keeps the natural 20 and criticals, so advantage can only raise the critical chance" | UNTESTED | COMPLIANT |
+| Condition Applied Mid-Round Has No Effect That Round (R17) | A same-round reaction is unaffected by a condition just applied | turn.spec.ts: "a condition applied this round never reaches the same round's reaction (R17)" | UNTESTED | COMPLIANT |
 
-| Requirement | Scenario | Test | Result |
-|---|---|---|---|
-| Reaction Applicability by Action Type (R4) | DODGE against a magic action does not apply | reactions.spec.ts > "DODGE against a magic action does not apply (R4)" | COMPLIANT |
-| BRACE (R5) | BRACE mitigates a hit | damage.spec.ts > "reduces damage by the constitution modifier under BRACE (R5)" | COMPLIANT |
-| BRACE (R5) | BRACE never reduces by less than 1 | damage.spec.ts > "never reduces damage by less than 1 under BRACE (R5)" | COMPLIANT |
-| PARRY (R6) | PARRY mitigates a physical hit | damage.spec.ts > "halves physical damage under PARRY (R6)" | COMPLIANT |
-| PARRY (R6) | WEAKENED and PARRY apply as two independent halvings | damage.spec.ts > "applies WEAKENED and PARRY as two independent halvings, not one combined division (R6)" | COMPLIANT |
-| DODGE (R7) | DODGE raises the effective armor class for one attack | turn.spec.ts > "step 1: DODGE raises the effective armor class before the roll is evaluated (R7)" | COMPLIANT |
-| ARCANE_WARD (R8) | ARCANE_WARD raises the save total | turn.spec.ts > "ARCANE_WARD adds the magic modifier to the save total, not the difficulty (R8)" | COMPLIANT |
-| COUNTER (R9) | COUNTER returns damage after taking a hit | turn.spec.ts > "step 7: COUNTER resolves only after confirming survival, dealing full damage back (R9)" | COMPLIANT |
-| COUNTER (R9) | POISONED does not alter a COUNTER counter-attack | turn.spec.ts > "POISONED does not alter a COUNTER counter-attack: no extra rollD20, damage unaffected (R1, R9)" | COMPLIANT |
-| RIPOSTE (R10) | RIPOSTE fires on a miss | turn.spec.ts > "RIPOSTE fires on a miss, returns damage, and step 8 applies WEAKENED only after that damage is finalized (R10, R11 step 8)" | COMPLIANT |
-| RIPOSTE (R10) | RIPOSTE does not trigger on a hit | turn.spec.ts > "RIPOSTE does not trigger on a hit: no counter damage and no WEAKENED applied" | COMPLIANT |
+**Compliance summary**: 53/53 scenarios compliant, 0 UNTESTED, across 21/21 requirements.
 
-#### combat-turn-pipeline (2 requirements / 10 scenarios) -- all COMPLIANT
+### Finding 1 -- closure evidence (combat-resolution / Advantage and Disadvantage)
 
-| Requirement | Scenario | Test | Result |
-|---|---|---|---|
-| Nine-Step Turn Resolution Order (R11) | Step 1 -- defense modifiers apply before the roll | turn.spec.ts > "step 1: DODGE raises the effective armor class before the roll is evaluated (R7)" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 2 -- action roll uses modified armor class | turn.spec.ts > "step 2: the action roll uses the already-modified armor class and hits exactly" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 3 -- damage only after confirmed hit | turn.spec.ts > "step 3: damage is calculated only after a confirmed hit -- a miss rolls no damage dice" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 4 -- mitigation applies to calculated damage | turn.spec.ts > "step 4: BRACE mitigates the calculated damage after the roll (R5)" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 5 -- HP reduced by mitigated value | turn.spec.ts > "step 5: HP is reduced by the mitigated value, not the raw value" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 6 -- death short-circuits before counter-attack | turn.spec.ts > "step 6: death short-circuits before any counter-attack, even with COUNTER declared and a hit" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 7 -- counter-attack only after confirmed survival | turn.spec.ts > "step 7: COUNTER resolves only after confirming survival, dealing full damage back (R9)" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 8 -- conditions applied after counter-attack completes | turn.spec.ts > "RIPOSTE fires on a miss, returns damage, and step 8 applies WEAKENED only after that damage is finalized (R10, R11 step 8)" | COMPLIANT |
-| Nine-Step Turn Resolution Order (R11) | Step 9 -- exactly two turn results always emitted | turn.spec.ts > "step 9: exactly two turn results are always emitted, even with no reaction declared" | COMPLIANT |
-| Reaction Applied Condition Not Retroactive (R10, R17, R11) | RIPOSTE's WEAKENED does not rewrite the missed action it answered | turn.spec.ts > "RIPOSTE's WEAKENED does not rewrite the missed action it answered (R10, R17, R11)" | COMPLIANT |
+Source: src/combat/attack/physical-attack.spec.ts, test "advantage keeps the natural 20 and
+criticals, so advantage can only raise the critical chance" (lines 142-167).
 
-**Compliance summary**: 51/53 scenarios compliant, 2 UNTESTED.
+- Exercises bias: ADVANTAGE against random.rollD20 mocked mockReturnValueOnce(20)
+  .mockReturnValueOnce(5) -- the exact die values the spec scenario names (20 then 5).
+- Asserts the composed result: result.rolls equals [20, 5], result.kept is 20,
+  result.critical is true, result.hit is true.
+- Load-bearing, confirmed by source reading of rollD20With (src/combat/core/d20.ts):
+  under NORMAL bias, rollD20With calls random.rollD20() exactly once and returns
+  rolls: [only], kept: only; under ADVANTAGE/DISADVANTAGE it calls random.rollD20()
+  twice and keeps the max/min. If this test's bias were forced to NORMAL against the same
+  mock, random.rollD20 would be called once (not twice) and result.rolls would equal [20]
+  (not [20, 5]) -- both of which the test explicitly asserts
+  (expect(random.rollD20).toHaveBeenCalledTimes(2), expect(result.rolls).toEqual([20, 5])).
+  The test fails under a NORMAL-bias regression, so it is genuinely load-bearing for the
+  two-roll advantage mechanism, not just for the final kept/critical values.
+- Verdict: CLOSED. The scenario as literally worded in the spec (natural 20 kept under
+  ADVANTAGE composes into critical: true) now has a passing runtime test that would fail if the
+  advantage mechanism regressed.
 
-### Uncovered Scenarios (explicit gap list)
+### Finding 2 -- closure evidence (combat-conditions / R17)
 
-1. combat-resolution / Advantage and Disadvantage / "Advantage can only raise the critical
-   chance, never lower it" -- spec requires: advantage active, rollD20() returns 20 then 5,
-   kept value is 20, attack is treated as critical. No test in the repository exercises
-   ADVANTAGE bias together with a natural 20 to confirm the composed critical: true result.
-   d20.spec.ts's ADVANTAGE test (rolls [7, 15] -> kept 15) never touches a natural 20 or
-   critical. turn.spec.ts's only bias+critical composition test
-   ("disadvantage can suppress a critical: a discarded natural 20 never counts") exercises
-   DISADVANTAGE, not advantage, and proves the opposite direction of this scenario. Verified
-   by grep across all *.spec.ts in src/combat/: zero occurrences of 'ADVANTAGE' bias
-   combined with a natural-20 roll. tasks.md task 4.5 claims this scenario is covered by
-   turn.spec.ts Part C ("bias + critical wiring"), but the test actually written in that part
-   is the disadvantage-suppresses-critical case, not the advantage-raises-critical case the spec
-   names. This is a genuine documentation-vs-test mismatch: the two scenarios assert opposite
-   outcomes (kept=20/critical=true vs. kept=5/critical=false) and only one exists in the suite.
+Source: src/combat/turn.spec.ts, test "a condition applied this round never reaches the same
+round's reaction (R17)" (lines 755-792).
 
-2. combat-conditions / Condition Applied Mid-Round Has No Effect That Round (R17) / "A
-   same-round reaction is unaffected by a condition just applied" -- spec requires: a combatant
-   is hit by VENOM_BOLT in round 3, fails the save, POISONED is applied to them; later in round 3
-   that same combatant's own reaction resolves, and POISONED's disadvantage must not bite on that
-   reaction's own rolls. No test asserts this literal sequence (POISONED applied to a defender,
-   then that same defender using a reaction later in the same round with disadvantage confirmed
-   absent). The two tests tagged R17 in the suite are: (a) turn.spec.ts's "PIN: nothing rolls
-   after step 8" -- a structural regression guard unrelated to POISONED, and (b) turn.spec.ts's
-   "RIPOSTE's WEAKENED does not rewrite the missed action it answered" -- this covers the
-   combat-turn-pipeline spec's own, differently-worded R17 requirement (a reaction's applied
-   condition not rewriting the already-resolved action), a distinct scenario in a different spec
-   file. Mitigating factor found by source inspection (not a substitute for a test): in turn.ts,
-   attackBiasFor(actor) is only invoked once, for the actor's own action roll; no reaction in
-   REACTION_TABLE ever calls random.rollD20() (BRACE/PARRY/DODGE/ARCANE_WARD roll nothing,
-   COUNTER/RIPOSTE trigger automatically per R9/R10), so the condition this scenario worries
-   about is structurally unreachable in the current engine. That argument is sound but it is
-   source-code reasoning, not a passing runtime test, so per this phase's rule ("a spec scenario
-   is compliant only when a covering test passed at runtime") it is reported as UNTESTED.
+- Scenario construction matches the spec literally: actor casts VENOM_BOLT (magic) on defender
+  in round 3; defender's saving throw (constitution 8, mod -1) rolls a mocked 5, total 4,
+  fails against difficulty 9; POISONED lands on the defender (roundsRemaining: 3, asserted via
+  result.defender.conditions). The defender's declared reaction is COUNTER, which fires on the
+  same turn because the failed save counts as a hit.
+- Asserts rollD20 was called exactly once for the whole turn
+  (expect(rollD20).toHaveBeenCalledTimes(1)) -- the only d20 roll in the turn is the defender's
+  saving throw; the reaction's resolution never rolls again.
+- Asserts the reaction's own output is the plain unbiased value: result.turns[1].damage is 6
+  (COUNTER's 1d6 mocked 4 plus modifier(strength 14) = +2, with no disadvantage-driven change),
+  and both combatants' final HP (actor.currentHp 24, defender.currentHp 22) are asserted exactly.
+- Would fail if a reaction rolled a biased d20: any code path that made the reaction consult
+  attackBiasFor/rollD20With a second time would raise the rollD20 call count to 2 or more,
+  breaking toHaveBeenCalledTimes(1) immediately, regardless of what value the mock returned.
+- Cross-checked against source (src/combat/turn.ts, src/combat/state/reactions.ts): no entry
+  in REACTION_TABLE (BRACE, PARRY, DODGE, ARCANE_WARD, COUNTER, RIPOSTE) ever calls
+  random.rollD20(); attackBiasFor is invoked exactly once, for the acting combatant's own
+  action roll (turn.ts line 149), never for a reaction. This means R17 holds both by the
+  structural argument already noted in the prior pass AND is now additionally pinned by a
+  runtime test that would catch a regression introducing a biased reaction roll.
+- Verdict: CLOSED. One caveat carried forward for transparency: because no reaction in this
+  engine ever rolls a d20 at all, the scenario's "does not impose disadvantage on that reaction's
+  own rolls, if any" is satisfied both by direct assertion (call count 1) and, for this specific
+  reaction, vacuously (COUNTER has no roll to bias). The test still meets this phase's bar --
+  "a spec scenario is compliant only when a covering test passed at runtime" -- because it
+  directly asserts the observable guarantee (exactly one d20 roll all turn, unbiased
+  damage/HP), not just static source structure.
 
-No other scenario among the 53 retrieved from the four spec files is uncovered.
+### Correctness (Static Evidence -- re-confirmed only where paths moved)
 
-### Correctness (Static Evidence -- the six rule checks requested, verified in source, not tests)
+The six rule checks from the prior pass were re-read at their post-reorganization paths and are
+unchanged in content:
 
-| Rule checked | Source location | Result | Notes |
-|---|---|---|---|
-| Round-start tick removes expired conditions before decrementing survivors | src/combat/round.ts lines 39-60 | CORRECT | survivors = actor.conditions.filter(...) (drops roundsRemaining === 0, emits CONDITION_EXPIRED) runs first; ticked = survivors.map(...) (decrements by 1, emits CONDITION_TICKED) runs second. Matches design.md "remove, then decrement, then recharge" and the corrected combat-conditions spec. |
-| A critical rolls the skill's own notation twice, summed (not one call with doubled notation) | src/combat/damage.ts rollDamage, lines 28-37 | CORRECT | first = random.rollDice(notation); total = critical ? first + random.rollDice(notation) : first -- two separate rollDice(notation) calls with the unchanged notation on a critical, matching R15 and the reconciled design D2. |
-| BRACE's floor of 1 applies to the reduction, not the resulting damage | src/combat/damage.ts reduceDamage, lines 61-70 | CORRECT | reduction = Math.max(ctx.mitigation.minimum, modifier(...)); value = value - reduction -- the floor is applied to reduction before subtraction, never to value after. Matches the spec-wins fix documented in Engram #238 / commit cc8a80e. |
-| POISONED subtracts 2 from the saving throw difficulty the bearer imposes, never from a save the bearer rolls | src/combat/magic-attack.ts saveDifficultyFor/resolveMagicAttack, lines 31-64 | CORRECT | saveDifficultyFor(attacker) reads only attacker.conditions and is the sole place the -2 is applied. resolveMagicAttack's defender-side total (kept + modifier(defender.constitution) + wardBonus) never reads any condition at all -- a POISONED defender's own save total is computed identically to an unpoisoned one. Confirmed structurally: no code path feeds defender.conditions into the -2. |
-| A natural 20 hits and a natural 1 misses before armor class is consulted | src/combat/physical-attack.ts lines 41-42 | CORRECT | critical = kept === 20; hit = kept === 1 ? false : critical ? true : targetValue >= armorClass -- the ternary short-circuits both natural-1 (always false) and natural-20 (always true) before ever evaluating targetValue >= armorClass. |
-| A fallen defender's COUNTER never fires | src/combat/turn.ts lines 226-313 | CORRECT | Step 6: if (defenderHpAfter <= 0) { defeatedId = defender.id; ... } else { /* step 7 counter-attack */ } -- the entire counter-attack block (including COUNTER's trigger check) lives exclusively inside the else branch, so a defeated defender's turn never reaches the counter logic at all. |
-
-All six checks were verified by reading the source files directly, as requested (not the tests).
+| Rule checked | Source location (current) | Result |
+|---|---|---|
+| Round-start tick removes expired conditions before decrementing survivors | src/combat/state/round.ts | CORRECT (unchanged) |
+| A critical rolls the skill's own notation twice, summed | src/combat/attack/damage.ts | CORRECT (unchanged) |
+| BRACE's floor of 1 applies to the reduction, not the resulting damage | src/combat/attack/damage.ts | CORRECT (unchanged) |
+| POISONED subtracts 2 from the saving throw difficulty the bearer imposes, never a save the bearer rolls | src/combat/attack/magic-attack.ts | CORRECT (unchanged) |
+| A natural 20 hits and a natural 1 misses before armor class is consulted | src/combat/attack/physical-attack.ts | CORRECT (unchanged) |
+| A fallen defender's COUNTER never fires | src/combat/turn.ts | CORRECT (unchanged) |
 
 ### Coherence (Design)
 
-| Decision | Followed? | Notes |
-|----------|-----------|-------|
-| File layout matches design.md's File Layout table | Yes | All files present in src/combat/ map 1:1 to the table; index.ts is the only file touched by more than one slice, as designed. |
-| RandomSource shape (D1) | Yes, with an approved deviation | rollD20: () => number / rollDice: (notation: string) => number as function-typed properties, not method signatures -- approved deviation (keeps expect(random.rollD20).toHaveBeenCalledTimes(n) lint-clean per @typescript-eslint/unbound-method). Behavior identical to design.md's interface. |
-| Nine-step pipeline order (R11) | Yes | turn.ts implements defense modifiers -> action roll -> damage -> mitigation -> HP subtract -> death short-circuit -> counter-attack -> conditions -> two-row emission, in exactly that order, matching the design's sequence diagram and the spec's step numbering 1-9. |
-| Damage reduction order (D4) | Yes | reduceDamage in damage.ts: WEAKENED -> save-passed -> PARRY -> BRACE -> clamp, matching D4's stated order exactly, including the BRACE-last / value > 0 guard rationale. |
-| Reaction table split (D5) | Yes | reactions.ts REACTION_TABLE holds only behavior (answers/defense/mitigation/counter shape) not present as a Skill column; numeric data (1d6, 1d8, appliesCondition, conditionRounds) is read from the declared CombatSkill at composition time in turn.ts, never hardcoded by reaction code -- matches the split justification in design.md. |
-| TurnRecord.skipped?: boolean (approved deviation) | Yes | Present in types.ts, used by turn.ts for both the STUNNED-actor short-circuit row and the STUNNED-defender-ignored reaction row; matches combat-conditions/spec.md's literal skipped: true wording. No prisma/schema.prisma change (verified: not touched by this change). |
-| resolveMagicAttack's rawDamage field (approved deviation) | Yes | MagicAttackResult includes rawDamage, absent from design.md's illustrative signature; save-passed halving stays in reduceDamage, the single owner of that arithmetic, exactly as documented. |
-| Slice 4 TDD process deviation (parts C, D, E first-write green) | Disclosed, not a defect | Confirmed against apply-progress (Engram #236) TDD Cycle Evidence table and the actual commit list (git log --oneline -- src/combat/): no commit exists for 4.6/4.8/4.10, matching the "NO SEPARATE COMMIT" notes in tasks.md. Process observation only, not reported as a finding. |
+Unchanged from the prior pass; not re-audited beyond the reorganization check above (design.md's
+File Layout table already anticipated grouped subfolders under "File Layout", and PR #22's move
+does not introduce a new deviation).
 
 ### TDD Compliance
 
 | Check | Result | Details |
 |-------|--------|---------|
-| TDD Evidence reported | Yes | Full "TDD Cycle Evidence" table present in Engram #236 (apply-progress) for slice 4; slices 1-3 report RED/GREEN status inline per task in tasks.md. |
-| All tasks have tests | Yes | Every impl task in tasks.md is preceded by its test-writing task; verified by reading the full task list. |
-| RED confirmed (tests exist) | Yes | All 12 *.spec.ts files exist in src/combat/, confirmed present via ls. |
-| GREEN confirmed (tests pass) | Yes | pnpm test -- 139/139 passing, 15/15 suites, re-run in this verification session. |
-| Triangulation adequate | Yes | Every requirement with more than one scenario has more than one distinct test case with different expected values (e.g. hit/miss/critical/nat-1 for physical attack; failed/passed/nat20/nat1/poisoned for magic attack). |
-| Safety Net for modified files | N/A | This change only adds new files under src/combat/; no pre-existing source file was modified except docs/design/overview.md (docs) and openspec/changes/add-combat-engine/{tasks,design}.md (planning docs). |
+| TDD Evidence reported | Yes | Unchanged from prior pass; commit 6ee4b1b is a single test-only commit closing both gaps, consistent with tasks.md's "NO SEPARATE COMMIT" pattern already disclosed for slice 4. |
+| All tasks have tests | Yes | Unchanged. |
+| RED confirmed (tests exist) | Yes | All spec.ts files exist at their (moved) paths, confirmed via ls. |
+| GREEN confirmed (tests pass) | Yes | pnpm test -- 141/141 passing, 15/15 suites, re-run in this verification session. |
+| Triangulation adequate | Yes | Unchanged; the two new tests add distinct expected values (kept=20/critical=true; rollD20 called once/damage=6) not previously asserted anywhere. |
+| Safety Net for modified files | N/A | 6ee4b1b only adds test cases to two existing spec files; 08a2e80 is a pure file move (git tracks both as renames), no behavior touched. |
 
 **TDD Compliance**: 5/5 applicable checks passed.
 
-### Test Layer Distribution
+### Assertion Quality (delta)
 
-| Layer | Tests | Files | Tools |
-|-------|-------|-------|-------|
-| Unit | 139 | 15 | Jest, jest.fn() mocks, no TestingModule |
-| Integration | 0 | 0 | not applicable -- engine has no HTTP/WS surface in this phase |
-| E2E | 0 | 0 | not applicable |
-| Total | 139 | 15 | |
+Both new tests were scanned for banned patterns (tautologies, orphan empty checks, ghost loops,
+smoke-test-only, mock/assertion ratio): none found. Both call the production function under test
+directly (resolvePhysicalAttack, resolveTurn) and assert concrete computed values (exact
+roll arrays, exact kept/critical/hit booleans, exact damage and HP numbers, exact call
+counts tied to the mechanism being proven), not type-only or tautological checks.
 
-### Assertion Quality
-
-Scanned all 13 *.spec.ts files under src/combat/ for banned patterns (tautologies, orphan
-empty-collection checks without a companion, type-only-only assertions, ghost loops, smoke-test-
-only renders, mock/assertion ratio). No violations found: every test in the suite asserts a
-concrete computed value (hit/miss booleans, exact damage numbers, exact HP totals, exact event
-shapes, or exact call counts/arguments tied to production code execution). No tautology-class
-assertions, no empty-loop assertions, and no test that skips calling the module under test.
-
-**Assertion quality**: All assertions verify real behavior -- 0 CRITICAL, 0 WARNING.
+**Assertion quality**: 0 CRITICAL, 0 WARNING (delta and cumulative).
 
 ### Quality Metrics
 
@@ -263,50 +230,50 @@ Nest CLI) exits 0.
 
 ### Issues Found
 
-**CRITICAL**:
-1. combat-resolution scenario "Advantage can only raise the critical chance, never lower it" has
-   no covering test anywhere in src/combat/*.spec.ts. Verified by grep for 'ADVANTAGE' bias
-   combined with a natural-20 roll across the whole suite -- zero matches.
+**CRITICAL**: None.
+
+**RESOLVED (carried forward for history)**:
+1. combat-resolution scenario "Advantage can only raise the critical chance, never lower it" --
+   was UNTESTED in the prior pass. Closed by commit 6ee4b1b, merged in PR #21. See "Finding 1
+   -- closure evidence" above.
 2. combat-conditions R17 scenario "A same-round reaction is unaffected by a condition just
-   applied" has no covering test that exercises POISONED applied mid-round biasing (or failing to
-   bias) that same bearer's own reaction later in the round. The property holds by source-code
-   construction (no reaction ever rolls rollD20), but no runtime test proves it, and this phase's
-   rule requires a passing runtime test for compliance.
+   applied" -- was UNTESTED in the prior pass. Closed by commit 6ee4b1b, merged in PR #21. See
+   "Finding 2 -- closure evidence" above.
 
 **WARNING**:
-1. Task-count drift across artifacts: Engram sdd/add-combat-engine/tasks (#235) states "45 tasks
-   total," Engram sdd/add-combat-engine/apply-progress (#236) states "47/47 total tasks
-   complete," but the authoritative openspec/changes/add-combat-engine/tasks.md file on disk
-   contains exactly 42 checkbox items, all checked. Not a completion defect (0 unchecked boxes
-   exist), but the narrative counts in two Engram memos do not match the file they describe.
-2. tasks.md traceability claims for tasks 4.5/4.7 attribute test coverage to scenarios
-   ("Advantage can only raise the critical chance...", "A same-round reaction is unaffected...")
-   that the actually-written tests in those tasks' commits do not assert. See the two CRITICAL
-   findings above for detail -- flagged again here as a process/documentation-accuracy issue
-   distinct from the missing coverage itself.
+1. Task-count drift across artifacts (unchanged, out of this re-verification's scope): Engram
+   sdd/add-combat-engine/tasks (#235) states "45 tasks total," Engram
+   sdd/add-combat-engine/apply-progress (#236) states "47/47 total tasks complete," but the
+   authoritative openspec/changes/add-combat-engine/tasks.md file on disk contains exactly 42
+   checkbox items, all checked. Not a completion defect (0 unchecked boxes exist), but the
+   narrative counts in two Engram memos still do not match the file they describe. Still open;
+   not addressed by the commits reviewed in this pass.
+2. (RESOLVED) tasks.md traceability claims for tasks 4.5/4.7 attribute test coverage to
+   scenarios that the actually-written tests did not assert -- the tests that now exist in
+   physical-attack.spec.ts and turn.spec.ts (added by 6ee4b1b) do assert the scenarios named
+   in tasks.md 4.5/4.7. No further action needed.
 
-**SUGGESTION**:
-1. Given the mitigating source-code argument for the R17 same-round-reaction scenario (no reaction
-   in REACTION_TABLE ever rolls rollD20, so attackBiasFor structurally cannot reach a reaction), a
-   lightweight regression test asserting random.rollD20 is called at most once during any turn
-   where a POISONED combatant both suffers a mid-round condition application and declares/uses a
-   reaction would close this gap cheaply and make the guarantee explicit rather than implicit.
-2. A direct physical-attack.spec.ts or turn.spec.ts case scripting rollD20 as [20, 5] under
-   ADVANTAGE bias (e.g. via a combatant carrying a hypothetical advantage source, or by calling
-   resolvePhysicalAttack directly with bias: 'ADVANTAGE') would close the first CRITICAL gap
-   with a small, targeted addition -- no production code change is implied; only a test is missing.
+**SUGGESTION**: None remaining. Both suggestions from the prior pass (add an ADVANTAGE+nat-20
+test; add a same-round POISONED-reaction test) were implemented verbatim by commit 6ee4b1b.
 
 ### Verdict
 
-**FAIL**
+**PASS**
 
-Two spec scenarios (of 53 total, across 21 requirements in 4 capability files) have no covering
-runtime test: combat-resolution's "Advantage can only raise the critical chance, never lower it"
-and combat-conditions's R17 "A same-round reaction is unaffected by a condition just applied."
-All 139 existing tests pass, pnpm lint and pnpm build are both clean, all six hard invariants
-requested for this verification hold by direct source inspection, and all 42 tasks on record in
-tasks.md are checked and are backed by real commits (cross-checked against git log, including
-all six merged PRs #15-#20). The implementation is otherwise faithful to spec, design, and the
-four approved rule decisions checked (tick order, critical doubling, BRACE floor, POISONED
-save-difficulty scoping, natural 20/1 pre-AC resolution, no-COUNTER-on-death). The two untested
-scenarios are the sole blockers to archive.
+All 53 spec scenarios across 21 requirements in the 4 capability files (combat-resolution,
+combat-conditions, combat-reactions, combat-turn-pipeline) now have a passing runtime covering
+test, closing the two CRITICAL gaps recorded in the prior verification pass. Commit 6ee4b1b
+(test(combat): cover advantage criticals and same round condition, merged in PR #21) added
+both closing tests; both were confirmed load-bearing by source inspection of the mechanisms they
+pin (rollD20With's bias branching; the absence of any rollD20 call anywhere in
+REACTION_TABLE's reaction resolution). Commit 08a2e80 (refactor(combat): group engine
+modules by what they know, merged in PR #22) regrouped src/combat/ into core/, attack/,
+and state/ subfolders; this was confirmed to be a pure move with no behavior change -- all 141
+tests still pass, pnpm lint and pnpm build are clean, the barrel index.ts still exports
+every module, and both hard invariants (no NestJS/DI in src/combat/; Math.floor confined to
+core/arithmetic.ts and core/random-source.ts) hold at the new paths. dist/main.js exists
+and dist/src/ does not. One WARNING (Engram task-count-prose drift) remains open but is
+documentation-only and does not block archive; the prior pass's second WARNING (traceability
+mismatch) is now resolved because the traceability claims match the tests that exist.
+
+This change is ready to archive.
