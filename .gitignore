@@ -1,9 +1,9 @@
 node_modules/
-dist/
-build/
+/dist/
+/build/
 src/generated/
-coverage/
-.nyc_output/
+/coverage/
+/.nyc_output/
 
 .env
 .env.local
