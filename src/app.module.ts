@@ -4,6 +4,7 @@ import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AuthModule } from './auth/auth.module';
+import { BuildModule } from './build/build.module';
 import { numberEnv } from './common/env';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
@@ -26,6 +27,7 @@ const DEFAULT_THROTTLE_LIMIT = 100;
     PrismaModule,
     AuthModule,
     SkillModule,
+    BuildModule,
   ],
   providers: [
     {
