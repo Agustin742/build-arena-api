@@ -145,6 +145,17 @@ model Battle {
   startedAt         DateTime?
   endedAt           DateTime?
 
+  // --- Phase 6, transient real-time state. Every field is nullable and is
+  // cleared in the same transaction that ends the situation it describes.
+  // Invariant, held by the single writer in TurnResolutionService:
+  //   reactionDeadline IS NOT NULL  <=>  pendingActionSkillCode IS NOT NULL
+  // The actor of the pending action is `activeUserId`, which is not advanced
+  // until the window resolves, so no second actor column is needed.
+  pendingActionSkillCode String?
+  reactionDeadline       DateTime?
+  disconnectedUserId     String?
+  disconnectDeadline     DateTime?
+
   challenger User  @relation("BattleChallenger", fields: [challengerId], references: [id])
   opponent   User  @relation("BattleOpponent", fields: [opponentId], references: [id])
   winner     User? @relation("BattleWinner", fields: [winnerId], references: [id])
