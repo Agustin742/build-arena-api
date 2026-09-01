@@ -258,38 +258,38 @@ environment; every PR is opened by hand at
 
 ## Slice 6 — `feat/ws-reaction-timeout` (base: slice 5)
 
-- [ ] 6.1 RED: `src/ws/reaction-timer.registry.spec.ts` — `arm()` schedules a callback at
+- [x] 6.1 RED: `src/ws/reaction-timer.registry.spec.ts` — `arm()` schedules a callback at
       `deadline - now` (Jest fake timers, safe here since no socket I/O is involved); `cancel()`
       clears it; `onModuleDestroy()` clears every outstanding timer.
       `test(ws): cover reaction timer arm cancel and teardown`
-- [ ] 6.2 Impl: `src/ws/reaction-timer.registry.ts` — `Map<battleId, NodeJS.Timeout>`,
+- [x] 6.2 Impl: `src/ws/reaction-timer.registry.ts` — `Map<battleId, NodeJS.Timeout>`,
       `arm`/`cancel`/`onModuleDestroy`, `.unref()` so it never holds the process (or a Jest run)
       open; the callback calls the same `TurnResolutionService.resolve()`.
       `feat(ws): add in-memory reaction timer registry`
-- [ ] 6.3 RED: extend `battle-session.service.spec.ts` — `settleOverdue()` (reaction branch): a
+- [x] 6.3 RED: extend `battle-session.service.spec.ts` — `settleOverdue()` (reaction branch): a
       past `reactionDeadline` triggers `resolve(..., reaction: null)` before the authorize loop
       runs; `reactionAvailable` remains `true` afterward (expiry preserves, never spends).
       `test(ws): cover lazy reaction window expiry preserving the reaction`
-- [ ] 6.4 Impl: `src/ws/battle-session.service.ts` — `settleOverdue()` reaction-window branch,
+- [x] 6.4 Impl: `src/ws/battle-session.service.ts` — `settleOverdue()` reaction-window branch,
       invoked before `authorize()` on every message. `feat(ws): add reaction window with
       timeout`
-- [ ] 6.5 Impl: `src/ws/battle.gateway.ts` — call `settleOverdue()` at the top of every
+- [x] 6.5 Impl: `src/ws/battle.gateway.ts` — call `settleOverdue()` at the top of every
       handler; wire `reaction-timer.registry.arm()` on `battle:action`, `.cancel()` on
       resolution. `src/ws/ws.module.ts` registers `ReactionTimerRegistry`. Folded into 6.4's
       commit.
-- [ ] 6.6 RED: extend for the two ordering guards — a second `battle:reaction` into a closed
+- [x] 6.6 RED: extend for the two ordering guards — a second `battle:reaction` into a closed
       window is refused `NO_OPEN_WINDOW`; a second `battle:action` while the actor's own window
       is still open is refused `ALREADY_DECLARED`, distinct from `NOT_YOUR_TURN`. Covers
       `realtime-reaction-window`'s two ordering requirements.
       `test(ws): cover already-declared and no-open-window refusals`
-- [ ] 6.7 Impl: satisfied by `message-checks.ts` (V3, already in place) plus `settleOverdue`
+- [x] 6.7 Impl: satisfied by `message-checks.ts` (V3, already in place) plus `settleOverdue`
       closing the window before the check runs. No separate commit expected.
-- [ ] 6.8 E2E: extend `battle-realtime.e2e-spec.ts` — backdate `reactionDeadline` via
+- [x] 6.8 E2E: extend `battle-realtime.e2e-spec.ts` — backdate `reactionDeadline` via
       `prisma.battle.update(...)` (no waiting, no fake timers against real socket I/O, the
       concrete payoff of the persisted deadline); assert the next message resolves with
       `reaction: null` and `reactionAvailable` stays `true`; assert both ordering refusals.
       `test(ws): cover backdated expiry and duplicate declaration refusals`
-- [ ] 6.9 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
+- [x] 6.9 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
       slice 5. Open PR 6; retarget base to `feat/ws-action-wiring`.
 
 ## Slice 7 — `feat/ws-battle-recovery` (base: slice 6)
