@@ -11,6 +11,8 @@ import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
 
 import { AppModule } from './../src/app.module';
+import { SequenceRandomSource } from './../src/combat';
+import { RANDOM_SOURCE } from './../src/common/random-source.token';
 import { PrismaService } from './../src/prisma/prisma.service';
 
 const NETWORK_TIMEOUT = 60_000;
@@ -255,6 +257,257 @@ describe('Battle realtime handshake and room admission (e2e)', () => {
         code: 'NOT_FOUND',
         message: 'Battle not found',
       });
+    },
+    NETWORK_TIMEOUT,
+  );
+});
+
+type ReactionWindowPayload = {
+  battleId: string;
+  round: number;
+  actorUserId: string;
+  actionSkillCode: string;
+  deadline: string;
+  remainingMs: number;
+  applicableSkillCodes: string[];
+};
+
+type TurnResolvedPayload = {
+  battleId: string;
+  round: number;
+  turns: {
+    sequence: number;
+    skillCode: string | null;
+    hit: boolean | null;
+    damage: number;
+  }[];
+  combatants: { userId: string; currentHp: number }[];
+  defeatedId: string | null;
+};
+
+type RoundStartPayload = {
+  battleId: string;
+  round: number;
+  activeUserId: string;
+};
+
+/**
+ * A full round, end to end: `battle:action` opens the window, the
+ * defender's `battle:reaction` resolves it through `TurnResolutionService`,
+ * and both clients converge on the identical `battle:turn_resolved` and
+ * `battle:round_start`. A separate app instance because `RANDOM_SOURCE`
+ * must be scripted before boot — the override replaces it wherever it is
+ * registered, including `freezeCombatant`'s initiative roll during accept.
+ */
+describe('Battle realtime full round resolution (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let url: string;
+  let sockets: ClientSocket[] = [];
+  let battleId: string;
+  let challengerId: string;
+  let opponentId: string;
+
+  const challenger = credentialsFor('fchl');
+  const opponent = credentialsFor('fopp');
+  const emails = [challenger.email, opponent.email];
+
+  const register = async (credentials: typeof challenger): Promise<string> => {
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send(credentials)
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: credentials.email, password: credentials.password })
+      .expect(200);
+
+    return (response.body as { accessToken: string }).accessToken;
+  };
+
+  const createBuild = async (token: string, name: string): Promise<string> => {
+    const response = await request(app.getHttpServer())
+      .post('/builds')
+      .set('Authorization', `Bearer ${token}`)
+      .send(buildFor(name))
+      .expect(201);
+
+    return (response.body as { id: string }).id;
+  };
+
+  const connectAuthenticated = (token: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const client = ioClient(url, {
+        transports: ['websocket'],
+        reconnection: false,
+        auth: { token },
+      });
+      sockets.push(client);
+      client.on('connect', () => resolve(client));
+      client.on('connect_error', reject);
+    });
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(RANDOM_SOURCE)
+      // Budget: 2 initiative d20s (accept, challenger then opponent), then
+      // the round's attack d20 and its 1d8 damage roll. Padded with margin
+      // so a real double-resolution fails loudly instead of exhausting
+      // silently on the wrong count.
+      .useValue(new SequenceRandomSource([15, 5, 15, 5, 10, 10, 10, 10]))
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    prisma = app.get(PrismaService);
+    await app.init();
+    await app.listen(0);
+
+    const httpServer = app.getHttpServer() as Server;
+    const address = httpServer.address() as AddressInfo;
+    url = `http://127.0.0.1:${address.port}`;
+
+    const challengerToken = await register(challenger);
+    const opponentToken = await register(opponent);
+
+    const challengerBuildId = await createBuild(
+      challengerToken,
+      'FullRoundChallenger',
+    );
+    const opponentBuildId = await createBuild(
+      opponentToken,
+      'FullRoundOpponent',
+    );
+
+    const challengerUser = await prisma.user.findUniqueOrThrow({
+      where: { email: challenger.email },
+      select: { id: true },
+    });
+    const opponentUser = await prisma.user.findUniqueOrThrow({
+      where: { email: opponent.email },
+      select: { id: true },
+    });
+    challengerId = challengerUser.id;
+    opponentId = opponentUser.id;
+
+    const challengeResponse = await request(app.getHttpServer())
+      .post('/battles')
+      .set('Authorization', `Bearer ${challengerToken}`)
+      .send({ opponentId, buildId: challengerBuildId })
+      .expect(201);
+
+    battleId = (challengeResponse.body as BattleView).id;
+
+    await request(app.getHttpServer())
+      .patch(`/battles/${battleId}/accept`)
+      .set('Authorization', `Bearer ${opponentToken}`)
+      .send({ buildId: opponentBuildId })
+      .expect(200);
+
+    const challengerSocket = await connectAuthenticated(challengerToken);
+    const opponentSocket = await connectAuthenticated(opponentToken);
+
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        challengerSocket.once('battle:state', () => resolve());
+        challengerSocket.emit('battle:join', { battleId });
+      }),
+      new Promise<void>((resolve) => {
+        opponentSocket.once('battle:state', () => resolve());
+        opponentSocket.emit('battle:join', { battleId });
+      }),
+    ]);
+  }, NETWORK_TIMEOUT);
+
+  afterAll(async () => {
+    const ids = [challengerId, opponentId];
+
+    await prisma.battle.deleteMany({
+      where: {
+        OR: [{ challengerId: { in: ids } }, { opponentId: { in: ids } }],
+      },
+    });
+    await prisma.user.deleteMany({ where: { email: { in: emails } } });
+    for (const socket of sockets) {
+      socket.close();
+    }
+    sockets = [];
+    await app.close();
+  }, NETWORK_TIMEOUT);
+
+  it(
+    'resolves a full round: action opens the window, the reaction resolves it, and both clients converge',
+    async () => {
+      const [challengerSocket, opponentSocket] = sockets;
+
+      // Higher scripted initiative (15 vs 5) put the challenger active first.
+      const windowPromise = new Promise<ReactionWindowPayload>((resolve) => {
+        opponentSocket.once('battle:reaction_window', resolve);
+      });
+      challengerSocket.emit('battle:action', {
+        battleId,
+        skillCode: 'POWER_STRIKE',
+      });
+      const window = await windowPromise;
+
+      expect(window.actorUserId).toBe(challengerId);
+      expect(window.actionSkillCode).toBe('POWER_STRIKE');
+      // Both PARRY and DODGE answer a PHYSICAL action; FIREBALL is an
+      // ACTION-type skill and never a candidate.
+      expect(window.applicableSkillCodes.sort()).toEqual(['DODGE', 'PARRY']);
+
+      const turnResolvedPromises = Promise.all([
+        new Promise<TurnResolvedPayload>((resolve) =>
+          challengerSocket.once('battle:turn_resolved', resolve),
+        ),
+        new Promise<TurnResolvedPayload>((resolve) =>
+          opponentSocket.once('battle:turn_resolved', resolve),
+        ),
+      ]);
+      const roundStartPromises = Promise.all([
+        new Promise<RoundStartPayload>((resolve) =>
+          challengerSocket.once('battle:round_start', resolve),
+        ),
+        new Promise<RoundStartPayload>((resolve) =>
+          opponentSocket.once('battle:round_start', resolve),
+        ),
+      ]);
+
+      opponentSocket.emit('battle:reaction', { battleId, skillCode: 'PARRY' });
+
+      const [challengerResolved, opponentResolved] = await turnResolvedPromises;
+
+      expect(challengerResolved).toEqual(opponentResolved);
+      expect(challengerResolved.round).toBe(1);
+      expect(challengerResolved.defeatedId).toBeNull();
+      expect(challengerResolved.turns).toEqual([
+        expect.objectContaining({
+          sequence: 1,
+          skillCode: 'POWER_STRIKE',
+          hit: true,
+        }),
+        expect.objectContaining({ sequence: 2, skillCode: 'PARRY' }),
+      ]);
+      // PARRY halves the raw 1d8(5)+2 = 7 damage down to 3.
+      const defenderView = challengerResolved.combatants.find(
+        (combatant) => combatant.userId === opponentId,
+      );
+      expect(defenderView?.currentHp).toBe(27);
+
+      const [challengerRound, opponentRound] = await roundStartPromises;
+
+      expect(challengerRound).toEqual(opponentRound);
+      expect(challengerRound.round).toBe(2);
+      expect(challengerRound.activeUserId).toBe(opponentId);
     },
     NETWORK_TIMEOUT,
   );
