@@ -240,9 +240,18 @@ fixed before commit — both are TypeScript/ESLint strictness catches, not logic
 
 ## Native Runtime Attempt Authority — Risk
 
-None new for this slice. The prior slice-0 attempt-authority `changed_line_budget_exceeded`
-finding (see above) was a native-runtime, not a code, concern and does not carry forward — this
-slice acquired its own attempt (`ph6-slice1-acq-child-1`, `--max-changed-lines 320`) separately.
+Same class of finding as slice 0, on this slice's own attempt. `gentle-ai sdd-attempt settle`
+recorded outcome `passed` (`ph6-slice1-settle-1`) but `sdd-attempt status` reports
+`changed_line_budget_exceeded: true`: this attempt's total changed lines (**864**, counting the
+lockfile, `.spec.ts` files, and every byte `git diff` touches, not just authored logic) exceeded
+the `--max-changed-lines 320` ceiling set at `acquire` time. This is the same tighter,
+everything-included native budget — separate from the review workload's 400 **logic-line**
+budget, which this slice respected at 165 measured. `sdd-attempt status` now reports
+`decision_required: true` and `next_action: "reset"`: a maintainer must run
+`gentle-ai sdd-attempt reset` with the expected-revision `status` prints
+(`sha256:4757506fe030b965da22dcdbd1793185f7d1360f78cf71fb341541f268153376` at time of writing)
+before slice 2 can acquire attempt authority. This is a native runtime gate, not a code or test
+problem; it does not affect the correctness or completeness of slice 1's implementation.
 
 ## Workload / PR Boundary
 
