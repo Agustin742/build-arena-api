@@ -10,6 +10,7 @@ import type {
 } from './battle-events';
 import { ClientEvent, ServerEvent } from './battle-events';
 import type { BattleSessionService } from './battle-session.service';
+import type { ReactionTimerRegistry } from './reaction-timer.registry';
 import type {
   TurnResolutionOutcome,
   TurnResolutionService,
@@ -30,8 +31,16 @@ const fakeSocket = (userId: string) => {
   const emit = jest.fn();
   const toEmit = jest.fn();
   const to = jest.fn().mockReturnValue({ emit: toEmit });
+  // Socket.IO resolves `join`, and `handleJoin` awaits it before answering.
+  const join = jest.fn().mockResolvedValue(undefined);
 
-  return { socket: { data, emit, to } as unknown as Socket, emit, to, toEmit };
+  return {
+    socket: { data, emit, to, join } as unknown as Socket,
+    emit,
+    to,
+    toEmit,
+    join,
+  };
 };
 
 const combatant = (id: string, userId: string): Combatant => ({
@@ -90,13 +99,19 @@ const baseOutcome: TurnResolutionOutcome = {
 };
 
 describe('BattleGateway — action and reaction handlers', () => {
+  const admitJoin = jest.fn();
   const admitAction = jest.fn();
   const admitReaction = jest.fn();
   const declareAction = jest.fn();
+  const settleOverdue = jest.fn();
+  const toStatePayload = jest.fn();
   const session = {
+    admitJoin,
     admitAction,
     admitReaction,
     declareAction,
+    settleOverdue,
+    toStatePayload,
   } as unknown as BattleSessionService;
 
   const resolve = jest.fn();
@@ -106,6 +121,10 @@ describe('BattleGateway — action and reaction handlers', () => {
     startRound,
   } as unknown as TurnResolutionService;
 
+  const arm = jest.fn();
+  const cancel = jest.fn();
+  const reactionTimer = { arm, cancel } as unknown as ReactionTimerRegistry;
+
   const jwt = {} as unknown as JwtService;
 
   let gateway: BattleGateway;
@@ -114,11 +133,26 @@ describe('BattleGateway — action and reaction handlers', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    gateway = new BattleGateway(jwt, session, turnResolution);
+    // Nothing overdue by default — the lazy path is exercised explicitly.
+    settleOverdue.mockResolvedValue(null);
+    gateway = new BattleGateway(jwt, session, turnResolution, reactionTimer);
     roomEmit = jest.fn();
     server = { to: jest.fn().mockReturnValue({ emit: roomEmit }) };
     (gateway as unknown as { server: Server }).server =
       server as unknown as Server;
+  });
+
+  describe('handleJoin', () => {
+    it('settles an overdue window before admitting the join (reconnect mid-window)', async () => {
+      admitJoin.mockResolvedValue({ ok: true, row: { id: BATTLE_ID } });
+      toStatePayload.mockReturnValue({ battleId: BATTLE_ID });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleJoin(socket, { battleId: BATTLE_ID });
+
+      expect(settleOverdue).toHaveBeenCalledWith(BATTLE_ID);
+      expect(admitJoin).toHaveBeenCalled();
+    });
   });
 
   describe('handleAction', () => {
@@ -126,6 +160,94 @@ describe('BattleGateway — action and reaction handlers', () => {
       battleId: BATTLE_ID,
       skillCode: 'POWER_STRIKE',
     };
+
+    it('settles an overdue window before admitting the new action', async () => {
+      admitAction.mockResolvedValue({
+        ok: false,
+        denial: { code: 'NOT_YOUR_TURN', message: 'it is not your turn' },
+      });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleAction(socket, payload);
+
+      expect(settleOverdue).toHaveBeenCalledWith(BATTLE_ID);
+    });
+
+    it('cancels the timer and broadcasts the outcome when the window was already overdue', async () => {
+      settleOverdue.mockResolvedValue(baseOutcome);
+      startRound.mockResolvedValue({ actor: defenderCombatant, events: [] });
+      admitAction.mockResolvedValue({
+        ok: false,
+        denial: { code: 'NOT_YOUR_TURN', message: 'stale action' },
+      });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleAction(socket, payload);
+
+      expect(cancel).toHaveBeenCalledWith(BATTLE_ID);
+      expect(server.to).toHaveBeenCalledWith(ROOM);
+      expect(roomEmit).toHaveBeenCalledWith(
+        ServerEvent.TURN_RESOLVED,
+        expect.objectContaining({ battleId: BATTLE_ID }),
+      );
+    });
+
+    it('arms the reaction timer with the declared deadline once the window opens', async () => {
+      const row = { id: BATTLE_ID, currentRound: 1 };
+      admitAction.mockResolvedValue({ ok: true, row });
+      const window = {
+        battleId: BATTLE_ID,
+        round: 1,
+        actorUserId: ACTOR_USER_ID,
+        actionSkillCode: 'POWER_STRIKE',
+        deadline: '2099-01-01T00:00:00.000Z',
+        remainingMs: 15_000,
+        applicableSkillCodes: [],
+      };
+      declareAction.mockResolvedValue(window);
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleAction(socket, payload);
+
+      expect(arm).toHaveBeenCalledWith(
+        BATTLE_ID,
+        new Date(window.deadline),
+        expect.any(Function),
+      );
+    });
+
+    it('the armed callback resolves through the exact same TurnResolutionService.resolve used by handleReaction — no second resolution path', async () => {
+      const row = { id: BATTLE_ID, currentRound: 1 };
+      admitAction.mockResolvedValue({ ok: true, row });
+      declareAction.mockResolvedValue({
+        battleId: BATTLE_ID,
+        round: 1,
+        actorUserId: ACTOR_USER_ID,
+        actionSkillCode: 'POWER_STRIKE',
+        deadline: '2099-01-01T00:00:00.000Z',
+        remainingMs: 15_000,
+        applicableSkillCodes: [],
+      });
+      resolve.mockResolvedValue(baseOutcome);
+      startRound.mockResolvedValue({ actor: defenderCombatant, events: [] });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleAction(socket, payload);
+      // `jest.fn()` types its calls as `any[]`, so the tuple is named once
+      // here rather than indexed raw — typed linting refuses the latter.
+      const [, , onExpire] = arm.mock.calls[0] as [
+        string,
+        Date,
+        () => Promise<void>,
+      ];
+      await onExpire();
+
+      expect(resolve).toHaveBeenCalledWith(BATTLE_ID, 1, 'POWER_STRIKE', null);
+      expect(roomEmit).toHaveBeenCalledWith(
+        ServerEvent.TURN_RESOLVED,
+        expect.objectContaining({ battleId: BATTLE_ID }),
+      );
+    });
 
     it('emits battle:error and never declares the action when authorization is denied', async () => {
       admitAction.mockResolvedValue({
@@ -222,6 +344,7 @@ describe('BattleGateway — action and reaction handlers', () => {
           ],
         }),
       );
+      expect(cancel).toHaveBeenCalledWith(BATTLE_ID);
     });
 
     it('starts the next round for the incoming actor when nobody is defeated', async () => {

@@ -18,6 +18,8 @@ import type {
   WsDenial,
 } from './rules/message-checks';
 import { authorize } from './rules/message-checks';
+import type { TurnResolutionOutcome } from './turn-resolution.service';
+import { TurnResolutionService } from './turn-resolution.service';
 
 export type AdmitJoinResult =
   | { readonly ok: true; readonly row: BattleSessionRow }
@@ -115,11 +117,48 @@ export class BattleSessionService {
   constructor(
     private readonly battleService: BattleService,
     private readonly prisma: PrismaService,
+    private readonly turnResolution: TurnResolutionService,
   ) {}
 
   /** The participant-scoped read `findForParticipant` already provides. */
   load(battleId: string, userId: string): Promise<BattleSessionRow | null> {
     return this.battleService.findForParticipant(battleId, userId);
+  }
+
+  /**
+   * The LOAD-BEARING lazy path (design's sequence diagram 2): called before
+   * every message's own checks. If this battle's reaction window has a
+   * deadline already in the past, resolves it through the exact same
+   * `TurnResolutionService.resolve()` the timer and the reaction handler
+   * call — never a second resolution path. `reaction: null` is what makes
+   * expiry preserve the defender's `reactionAvailable` (the resolver's own
+   * rule, not re-derived here). Returns `null` when nothing was overdue.
+   */
+  async settleOverdue(battleId: string): Promise<TurnResolutionOutcome | null> {
+    const battle = await this.prisma.battle.findUnique({
+      where: { id: battleId },
+      select: {
+        currentRound: true,
+        pendingActionSkillCode: true,
+        reactionDeadline: true,
+      },
+    });
+
+    if (
+      !battle ||
+      battle.pendingActionSkillCode === null ||
+      battle.reactionDeadline === null ||
+      battle.reactionDeadline.getTime() > Date.now()
+    ) {
+      return null;
+    }
+
+    return this.turnResolution.resolve(
+      battleId,
+      battle.currentRound,
+      battle.pendingActionSkillCode,
+      null,
+    );
   }
 
   /** Thin delegate: the seven checks are declared exactly once, in `rules/`. */
