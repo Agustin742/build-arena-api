@@ -8,6 +8,7 @@ import { numberEnv } from './common/env';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SkillModule } from './skill/skill.module';
 
 const DEFAULT_THROTTLE_TTL = 60_000;
 const DEFAULT_THROTTLE_LIMIT = 100;
@@ -24,6 +25,7 @@ const DEFAULT_THROTTLE_LIMIT = 100;
     HealthModule,
     PrismaModule,
     AuthModule,
+    SkillModule,
   ],
   providers: [
     {
