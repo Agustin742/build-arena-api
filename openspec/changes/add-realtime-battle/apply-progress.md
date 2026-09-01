@@ -1,13 +1,13 @@
 # Apply Progress: Real-time Battle (Phase 6)
 
-Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`). Scope of this
-batch: **Slice 0 only** (schema + closure + shared read foundation).
+Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`). Slice 1 branch:
+`feat/ws-handshake-auth` (base: `feat/add-realtime-battle`, at `ddc9136`).
 
 ## Status
 
-10/10 Slice 0 tasks complete. Slices 1–7 not started. Ready for `sdd-verify` on slice 0, or for
-`sdd-apply` to continue with slice 1 once PR 0 is reviewed/merged per the stacked-to-main chain
-strategy.
+10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. Slices 2–7 not started. Ready for
+`sdd-verify` on slices 0–1, or for `sdd-apply` to continue with slice 2 once PR 1 is
+reviewed/merged per the stacked-to-main chain strategy.
 
 ## Completed Tasks (Slice 0)
 
@@ -120,3 +120,158 @@ the correctness or completeness of slice 0's implementation.
 - Estimated review budget impact: 106 logic lines against the 400 budget — Low risk, well within
   the 80–120 forecast
 - PR 0 not opened; branch not pushed, per instructions. Local commits only.
+
+---
+
+# Slice 1 — `feat/ws-handshake-auth` (base: slice 0, `ddc9136`)
+
+## Completed Tasks (Slice 1)
+
+- [x] 1.1 `package.json`/`pnpm-lock.yaml` — `@nestjs/websockets@11.2.3`,
+      `@nestjs/platform-socket.io@11.2.3` (exact pins, both resolve at major 11 in the
+      lockfile), `socket.io@^4.8.3` dependency, `socket.io-client@^4.8.3` devDependency
+- [x] 1.2 RED — `src/ws/ws-auth.middleware.spec.ts` created: valid token attaches
+      `socket.data.user`; absent, malformed, invalid-signature, and expired tokens all call
+      `next(Error)` — hand-built fake socket, real `new JwtService({})` (no `TestingModule`,
+      matching `auth.service.spec.ts`'s convention)
+- [x] 1.3 GREEN — `src/ws/ws-auth.middleware.ts` created: `createWsAuthMiddleware(jwt)`
+      factory, reads `handshake.auth.token` only, `JwtService.verifyAsync<AccessTokenPayload>`
+      against `requireEnv('JWT_SECRET')`, attaches `{ id, username }` to `socket.data.user`
+- [x] 1.4 `src/ws/battle-events.ts` created (partial): `ClientEvent`/`ServerEvent` name
+      constants, full `WsErrorCode` union (from design's Denial mapping table), `WsErrorPayload`,
+      and `SocketData` (connection-scoped types only — no dedicated test, pure types)
+- [x] 1.5 `src/ws/ws.module.ts` created: imports `BattleModule`, `PrismaModule`,
+      `JwtModule.register({})`; re-declares `randomSourceProvider`; provides `BattleGateway`
+- [x] 1.6 `src/ws/battle.gateway.ts` created: `@WebSocketGateway()` skeleton;
+      `afterInit` installs the auth middleware via a sync wrapper (`server.use()` cannot take an
+      async callback without tripping `@typescript-eslint/no-misused-promises`);
+      `handleConnection`/`handleDisconnect` log the authenticated user, no room logic
+- [x] 1.7 `src/app.module.ts` — `WsModule` registered in the root `imports` array
+- [x] 1.8 E2E — `test/battle-realtime.e2e-spec.ts` created: `beforeAll` runs the full REST
+      flow (register both players, create builds, challenge, accept) to `ACCEPTED` exactly like
+      `battle-lifecycle.e2e-spec.ts`, then `app.listen(0)` opens a real port; the one test
+      proves a tokenless `socket.io-client` connection fires `connect_error`, never `connect`
+- [x] 1.9 Satisfied by 1.3/1.6 — no separate commit
+- [x] 1.10 Verify — full unit and e2e suites green, lint clean, `tsc --noEmit` clean, build
+      clean with `dist/main.js` at dist root, logic-line diff measured. PR 1 NOT opened, branch
+      NOT pushed, per this batch's explicit instruction
+
+## Files Changed (Slice 1)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `package.json` | Modified | `@nestjs/websockets@11.2.3`, `@nestjs/platform-socket.io@11.2.3` (exact), `socket.io@^4.8.3`; devDependency `socket.io-client@^4.8.3` |
+| `pnpm-lock.yaml` | Modified | Lockfile resolution for the above, confirmed at major 11 |
+| `src/ws/battle-events.ts` | Created | `ClientEvent`, `ServerEvent`, `WsErrorCode`, `WsErrorPayload`, `SocketData` |
+| `src/ws/ws-auth.middleware.ts` | Created | `createWsAuthMiddleware(jwt)` — handshake token verification |
+| `src/ws/ws-auth.middleware.spec.ts` | Created | 5 tests: valid, absent, malformed, invalid signature, expired |
+| `src/ws/ws.module.ts` | Created | `WsModule` — imports `BattleModule`, `PrismaModule`, `JwtModule.register({})`; provides `BattleGateway`, `randomSourceProvider` |
+| `src/ws/battle.gateway.ts` | Created | `BattleGateway` skeleton — `afterInit` wires the auth middleware; connection/disconnect lifecycle hooks only |
+| `src/app.module.ts` | Modified | `WsModule` added to root imports |
+| `test/battle-realtime.e2e-spec.ts` | Created | Tokenless handshake rejection, against a real `app.listen(0)` port |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified | Slice 1 tasks marked `[x]` |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 1.2/1.3 | `src/ws/ws-auth.middleware.spec.ts` | Unit | N/A (new file) | Written — failed on `Cannot find module './ws-auth.middleware'` | Passed — 5/5 | 5 cases (valid, absent, malformed, invalid signature, expired) | Clean — `server.use()` wrapped in a sync callback after a lint failure (`no-misused-promises`), no behavior change |
+| 1.8/1.9 | `test/battle-realtime.e2e-spec.ts` | E2E | 34/34 pre-existing e2e green | N/A — this e2e proves 1.3/1.6, already GREEN by the time it was written (per 1.9), not a fresh RED/GREEN pair | Passed — 1/1 | N/A — single scenario per slice boundary (rooms/join are slice 3) | Clean — one `tsc` fix (`app.getHttpServer()` cast through `node:http`'s `Server` before `.address()`), no behavior change |
+
+### Test Summary
+- **Total tests written**: 6 (5 middleware unit + 1 e2e)
+- **Total tests passing**: 327/327 unit (full suite), 35/35 e2e (full suite, 7 suites)
+- **Layers used**: Unit (5 new; 327 total), E2E (1 new; 35 total)
+- **Pure functions/factories created**: `createWsAuthMiddleware`
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm test src/ws` -> 1 suite, 5/5 passing; `node ...jest.js --config ./test/jest-e2e.json battle-realtime` -> 1 suite, 1/1 passing |
+| Runtime harness command/scenario and exact result | `pnpm build` -> clean, `dist/main.js` confirmed at dist root; full `pnpm test:e2e` with `--detectOpenHandles` -> 7 suites, 35/35 passing, exit code 0, no leaked handles |
+| Rollback boundary | Revert the 8 slice-1 commits (`73b0c4d`..`87c9088`); `WsModule` removal from `src/app.module.ts` is a 2-line revert; `src/ws/` deletion removes the rest cleanly; no schema or data changes in this slice |
+
+## Verification Detail
+
+- `pnpm test`: 36 suites, 327/327 tests passing (322 pre-existing + 5 new)
+- `pnpm test:e2e`: 7 suites, 35/35 tests passing (34 pre-existing + 1 new), `--detectOpenHandles`
+  reported nothing outstanding, 220s total
+- `pnpm lint`: clean (one real finding fixed during development —
+  `@typescript-eslint/no-misused-promises` on `server.use()` receiving an async callback
+  directly; fixed by wrapping it in a `void`-returning sync closure)
+- `npx tsc --noEmit`: clean (one real finding fixed — `app.getHttpServer()` returns
+  `supertest/types`' `App` union, which does not have `.address()`; fixed by casting through
+  `node:http`'s `Server` type first)
+- `pnpm build`: clean; `dist/main.js` confirmed at the root of `dist/`
+- Resolved dependency versions (confirmed in both `package.json` and `pnpm-lock.yaml`):
+  `@nestjs/websockets@11.2.3`, `@nestjs/platform-socket.io@11.2.3` — **both exact major 11**,
+  matching the installed `@nestjs/common@11.2.3`
+- Logic-line diff: `git diff --numstat feat/add-realtime-battle...feat/ws-handshake-auth --
+  'src/**/*.ts' ':!*.spec.ts' | awk '{s+=$1} END {print s}'` = **165** (budget 400, forecast
+  75–100 — over forecast, well within budget; see Deviations below)
+
+## Deviations from Design
+
+None structural — implementation matches design's Handshake Authentication section literally
+(middleware location, `handshake.auth.token` only, `JwtService.verifyAsync` shape,
+`socket.data.user` attachment) and the Event Contract's error-code/event-name vocabulary.
+
+Two implementation-level judgment calls not fully specified by design/tasks:
+
+1. **`battle-events.ts` scope.** The task says "connection-related payload types" for this
+   slice, but the design's Event Contract table defines the full event vocabulary and the full
+   `WsErrorCode` union in one place with no partial listing given. Declaring the complete
+   `ClientEvent`/`ServerEvent` name constants and the complete `WsErrorCode` union now (all pure
+   types, no logic) avoids a later slice having to widen a type in a way that could look like
+   scope creep in a smaller diff; the payload *shapes* for turn resolution, reactions, etc.
+   remain undeclared, matching the letter of "connection-related payload types." This is why the
+   logic-line count (165) landed above the 75–100 forecast but still far under the 400 budget.
+2. **Middleware error message.** Design does not specify handshake failure error text; the
+   middleware always raises `new Error('Unauthorized')` regardless of which of the four rejection
+   reasons applies (absent/malformed/bad signature/expired), matching the spec's requirement that
+   the client "never learns whether any battle exists" — a uniform message is the safest
+   information-hiding default until a later slice's design section says otherwise.
+
+## Issues Found
+
+None. Two lint/type findings surfaced during development (see Verification Detail) and were
+fixed before commit — both are TypeScript/ESLint strictness catches, not logic defects.
+
+## Native Runtime Attempt Authority — Risk
+
+None new for this slice. The prior slice-0 attempt-authority `changed_line_budget_exceeded`
+finding (see above) was a native-runtime, not a code, concern and does not carry forward — this
+slice acquired its own attempt (`ph6-slice1-acq-child-1`, `--max-changed-lines 320`) separately.
+
+## Workload / PR Boundary
+
+- Mode: stacked PR slice (`stacked-to-main` chain strategy)
+- Current work unit: Slice 1 — "WebSocket handshake authentication" (PR 1)
+- Boundary: starts at `ddc9136` (slice 0 tip), ends at `87c9088`; 8 new commits total
+- Estimated review budget impact: 165 logic lines against the 400 budget — Low risk, above the
+  75–100 forecast but well within budget (see Deviations)
+- PR 1 not opened; branch not pushed, per instructions. Local commits only, on
+  `feat/ws-handshake-auth`
+
+## Key Learnings
+
+1. `server.use()` on a Socket.IO `Server` expects a void-returning callback, so an `async`
+   middleware factory must be invoked from inside a synchronous wrapper (`void authenticate(...)`)
+   in `afterInit`, or `@typescript-eslint/no-misused-promises` fails the build.
+2. `INestApplication#getHttpServer()` is typed to return `supertest/types`' `App` union
+   (`Server | RequestListener | ((req, res) => ...) | string`), which has no `.address()`; a
+   real listening-port e2e spec must cast through `node:http`'s `Server` type before calling
+   `.address()`.
+3. `app.getUrl()` can return an `[::1]`-form address that `socket.io-client` does not always
+   dial cleanly in this environment; building the URL from `app.listen(0)`'s resolved
+   `AddressInfo.port` against `127.0.0.1` is the reliable form for this repo's first
+   real-socket e2e spec.
+4. Declaring `@nestjs/websockets` and `@nestjs/platform-socket.io` at the exact same patch
+   version as the already-installed `@nestjs/common` (`11.2.3`) is a safe, mechanical way to
+   pick the pin — it is the newest release still on major 11 and guaranteed compatible with the
+   rest of the NestJS stack already in `package.json`.
+5. Socket.IO server middleware rejects a tokenless or invalid-token handshake before
+   `handleConnection` fires, so the client only ever observes a `connect_error` event — this
+   repo's e2e suite therefore has no way to assert on a REST-style status code for this
+   scenario, only on which of `connect`/`connect_error` fires first.

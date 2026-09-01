@@ -102,29 +102,29 @@ environment; every PR is opened by hand at
 
 ## Slice 1 — `feat/ws-handshake-auth` (base: slice 0)
 
-- [ ] 1.1 Impl: `package.json` — add `@nestjs/websockets`, `@nestjs/platform-socket.io` pinned
+- [x] 1.1 Impl: `package.json` — add `@nestjs/websockets`, `@nestjs/platform-socket.io` pinned
       **exact major 11, never 12** (major 12 is pure ESM and breaks this NestJS 11 + CommonJS
       build); `socket.io` dependency; `socket.io-client` devDependency. Run `pnpm install`;
       confirm both `@nestjs/*` entries resolve at major 11 in the lockfile.
       `feat(ws): pin websocket dependencies at major 11`
-- [ ] 1.2 RED: `src/ws/ws-auth.middleware.spec.ts` — valid token attaches
+- [x] 1.2 RED: `src/ws/ws-auth.middleware.spec.ts` — valid token attaches
       `socket.data.user`; absent, malformed, invalid-signature, and expired tokens all call
       `next(Error)`. Stub `JwtService`, hand-built fake socket (repo convention, no
       `TestingModule`). `test(ws): cover handshake token verification outcomes`
-- [ ] 1.3 Impl: `src/ws/ws-auth.middleware.ts` — `server.use()` factory calling
+- [x] 1.3 Impl: `src/ws/ws-auth.middleware.ts` — `server.use()` factory calling
       `JwtService.verifyAsync<AccessTokenPayload>(token, { secret: requireEnv('JWT_SECRET') })`;
       reads `handshake.auth.token` only. `feat(ws): add handshake authentication middleware`
-- [ ] 1.4 Impl: `src/ws/battle-events.ts` (partial) — event names, `WsErrorCode` union,
+- [x] 1.4 Impl: `src/ws/battle-events.ts` (partial) — event names, `WsErrorCode` union,
       connection-related payload types. No dedicated test (pure types).
       `feat(ws): add websocket event and error code contract`
-- [ ] 1.5 Impl: `src/ws/ws.module.ts` — imports `BattleModule`, `PrismaModule`,
+- [x] 1.5 Impl: `src/ws/ws.module.ts` — imports `BattleModule`, `PrismaModule`,
       `JwtModule.register({})`; registers `randomSourceProvider`; provides the gateway.
       `feat(ws): add websocket module wiring`
-- [ ] 1.6 Impl: `src/ws/battle.gateway.ts` — `afterInit` installs the auth middleware;
+- [x] 1.6 Impl: `src/ws/battle.gateway.ts` — `afterInit` installs the auth middleware;
       `handleConnection`/`handleDisconnect` skeletons (no room logic yet).
       `feat(ws): add websocket gateway with handshake authentication`
-- [ ] 1.7 Impl: `src/app.module.ts` — register `WsModule`. `feat(ws): register websocket module`
-- [ ] 1.8 E2E RED: `test/battle-realtime.e2e-spec.ts` (new file) — a tokenless connection never
+- [x] 1.7 Impl: `src/app.module.ts` — register `WsModule`. `feat(ws): register websocket module`
+- [x] 1.8 E2E RED: `test/battle-realtime.e2e-spec.ts` (new file) — a tokenless connection never
       joins (`realtime-battle-session` scenario). **Requires `await app.listen(0)`** — the
       first e2e spec in this repo to open a real listening port, a deliberate new pattern, not
       a mistake. Build the URL from `app.getHttpServer().address()`, not `app.getUrl()` (can
@@ -132,10 +132,13 @@ environment; every PR is opened by hand at
       `battle-lifecycle.e2e-spec.ts`'s REST flow to `ACCEPTED`; usernames use a
       `Date.now().toString(36)` suffix (20-char max). `test(ws): cover tokenless handshake
       rejection`
-- [ ] 1.9 Impl: satisfies 1.8 via 1.3/1.6. No separate commit expected.
-- [ ] 1.10 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`; confirm
+- [x] 1.9 Impl: satisfies 1.8 via 1.3/1.6. No separate commit expected.
+- [x] 1.10 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`; confirm
       `dist/main.js` at the root. Measure diff against slice 0. Open PR 1; retarget base to
       `feat/add-realtime-battle` on GitHub.
+      Note: all local verification passed; PR 1 was NOT opened and the branch was NOT pushed,
+      per this batch's explicit "commit locally only" instruction — deferred to whoever pushes
+      the stacked chain.
 
 ## Slice 2 — `feat/ws-message-checks` (base: slice 1)
 
