@@ -9,7 +9,8 @@ import { Prisma } from '../generated/prisma/client';
 import { FriendshipStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateFriendshipDto } from './dto/create-friendship.dto';
-import { PLAYER_COLUMNS, toPublicFriendship } from './friendship.mapper';
+import { PLAYER_COLUMNS } from '../common/public-player';
+import { toPublicFriendship } from './friendship.mapper';
 import type {
   FriendshipWithPlayers,
   PublicFriendship,

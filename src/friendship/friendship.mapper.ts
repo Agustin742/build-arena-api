@@ -1,16 +1,6 @@
+import type { PublicPlayer } from '../common/public-player';
 import type { Friendship } from '../generated/prisma/client';
 import type { FriendshipStatus } from '../generated/prisma/enums';
-
-/** The only columns of a rival a friendship view is allowed to carry. */
-export type PublicPlayer = {
-  id: string;
-  username: string;
-  rating: number;
-};
-
-export const PLAYER_COLUMNS = {
-  select: { id: true, username: true, rating: true },
-} as const;
 
 export type FriendshipWithPlayers = Friendship & {
   requester: PublicPlayer;
