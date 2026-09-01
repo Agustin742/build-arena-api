@@ -5,6 +5,7 @@ import type { CreateBattleDto } from './dto/create-battle.dto';
 
 const user = { id: '11111111-0000-4000-8000-000000000009', username: 'sylas' };
 const BATTLE_ID = '22222222-0000-4000-8000-000000000001';
+const BUILD_ID = '44444444-0000-4000-8000-000000000004';
 
 const dto: CreateBattleDto = {
   opponentId: '33333333-0000-4000-8000-000000000003',
@@ -59,9 +60,17 @@ describe('BattleController', () => {
   ] as const)(
     'runs %s as the user in the token, not as whoever the path names',
     async (route, method) => {
-      await controller[route](BATTLE_ID, user);
+      if (route === 'accept') {
+        await controller.accept(BATTLE_ID, user, { buildId: BUILD_ID });
+      } else {
+        await controller[route](BATTLE_ID, user);
+      }
 
-      expect(service[method]).toHaveBeenCalledWith(BATTLE_ID, user.id);
+      expect(service[method]).toHaveBeenCalledWith(
+        BATTLE_ID,
+        user.id,
+        ...(route === 'accept' ? [{ buildId: BUILD_ID }] : []),
+      );
     },
   );
 });
