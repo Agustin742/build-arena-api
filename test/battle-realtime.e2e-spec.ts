@@ -157,7 +157,8 @@ describe('Battle realtime handshake and room admission (e2e)', () => {
     client: ClientSocket,
     id: string,
   ): Promise<
-    { event: 'state'; payload: BattleStatePayload } | { event: 'error'; payload: BattleErrorPayload }
+    | { event: 'state'; payload: BattleStatePayload }
+    | { event: 'error'; payload: BattleErrorPayload }
   > =>
     new Promise((resolve) => {
       client.once('battle:state', (payload: BattleStatePayload) =>

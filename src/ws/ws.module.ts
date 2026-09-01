@@ -5,6 +5,7 @@ import { BattleModule } from '../battle/battle.module';
 import { randomSourceProvider } from '../common/random-source.token';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BattleGateway } from './battle.gateway';
+import { BattleSessionService } from './battle-session.service';
 
 /**
  * `PrismaModule` is deliberately non-global, and `BattleModule` provides
@@ -13,6 +14,6 @@ import { BattleGateway } from './battle.gateway';
  */
 @Module({
   imports: [BattleModule, PrismaModule, JwtModule.register({})],
-  providers: [BattleGateway, randomSourceProvider],
+  providers: [BattleGateway, BattleSessionService, randomSourceProvider],
 })
 export class WsModule {}
