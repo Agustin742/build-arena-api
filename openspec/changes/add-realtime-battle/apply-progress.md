@@ -6,9 +6,11 @@ Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`)
 ## Status
 
 10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete. 6/6
-Slice 3 tasks complete. Slices 4–7 not started. Ready for `sdd-verify` on slices 0–3, or for
-`sdd-apply` to continue with slice 4 once PR 3 is reviewed/merged per the stacked-to-main chain
-strategy.
+Slice 3 tasks complete. 9/9 Slice 4 tasks complete. Slices 5–7 not started. Ready for
+`sdd-verify` on slices 0–4, or for `sdd-apply` to continue with slice 5 once PR 4 is
+reviewed/merged per the stacked-to-main chain strategy. Slice 4's native attempt authority is
+`blocked(maintainer_decision)` pending a `gentle-ai sdd-attempt reset` — see "Native Runtime
+Attempt Authority (Slice 4)" below; this does not affect the correctness of the implementation.
 
 ## Completed Tasks (Slice 0)
 
@@ -581,3 +583,204 @@ ceiling set at `acquire` — comfortably inside it.
    against a single `emit` is a clean way to assert "exactly one of these two mutually exclusive
    outcomes happens," without needing a timeout-based negative assertion for the event that
    does not fire.
+
+---
+
+# Slice 4 — `feat/ws-turn-resolution` (base: slice 3, `c4d6b54`)
+
+## Completed Tasks (Slice 4)
+
+- [x] 4.1 RED — `src/ws/turn-resolution.service.spec.ts` (part A): the atomic claim
+      (`count === 1` wins and reaches the engine, `count === 0` never does), the declared
+      reaction (or `null`) reaching `resolveTurn`, and `createMany` never using
+      `skipDuplicates`
+- [x] 4.2 GREEN — `src/ws/turn-resolution.service.ts` (part A): `resolve(battleId, round,
+      actionSkillCode, reactionSkillCode)` — interactive `$transaction`: the claim
+      (`updateMany` `WHERE reactionDeadline IS NOT NULL`), load both combatants + conditions +
+      the skill catalog rows, `resolveTurn` (pure, `RANDOM_SOURCE` injected), `createMany` for
+      the `BattleTurn` rows
+- [x] 4.3 RED — extended part B: `BattleCombatant.currentHp`/`reactionAvailable` persistence
+      (spent iff `turns[1].skillCode !== null`), `ActiveCondition` upsert on
+      `CONDITION_APPLIED`, round advancement, and `DEFEAT` closure
+- [x] 4.4 GREEN — `turn-resolution.service.ts` (part B): transaction steps 5-7 —
+      `persistCombatants`, `persistConditions` (generic over `CONDITION_APPLIED`/`_TICKED`/
+      `_EXPIRED`, though only `_APPLIED` fires from inside `resolveTurn` itself), and
+      `persistBattleAdvance` (round increment + `activeUserId` flip, or `closeBattle('DEFEAT')`
+      when `defeatedId` is present)
+- [x] 4.5 RED — concurrency, real database: `Promise.all` of two `resolve()` calls for the
+      identical `(battleId, round)`. Ran against the real database and PASSED on the first
+      attempt — see "The Concurrency Test" below
+- [x] 4.6 — no code change needed. The claim from 4.2 already satisfies 4.5; the named
+      `SELECT ... FOR UPDATE` contingency did not trigger
+- [x] 4.7 RED — extended part D: a `P2002` on `(battleId, round, sequence)` re-reads the
+      persisted `BattleTurn` rows and combatant state and re-emits, never throws and never
+      re-runs the engine
+- [x] 4.8 GREEN — catches `Prisma.PrismaClientKnownRequestError` with `code === 'P2002'`
+      alongside the internal `ClaimLostError` sentinel, both routed to the same
+      `reReadResolution()` helper
+- [x] 4.9 Verify — full unit and e2e suites green, lint clean, `tsc --noEmit` clean, build
+      clean with `dist/main.js` at dist root, logic-line diff measured at exactly 400
+      (budget 400 — see "Workload / PR Boundary")
+
+## Files Changed (Slice 4)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `src/ws/turn-resolution.service.ts` | Created | `TurnResolutionService.resolve()`: the atomic claim, engine invocation, `BattleTurn`/`BattleCombatant`/`ActiveCondition`/`Battle` persistence, `DEFEAT` closure, and the `ClaimLostError`/`P2002` idempotent re-emit path (`reReadResolution()`) |
+| `src/ws/turn-resolution.service.spec.ts` | Created | Parts A/B/D: 11 mocked-Prisma unit tests (claim win/lose, engine invocation with/without a reaction, no `skipDuplicates`, combatant/condition/closure persistence, P2002 idempotency). Part C: 1 real-database concurrency test |
+| `package.json` | Modified | `test` script now runs `node --experimental-vm-modules node_modules/jest/bin/jest.js` (was bare `jest`) — required the moment a unit spec instantiates a real `PrismaClient`; Prisma 7's query compiler loads through a dynamic `import()` that Jest's sandbox forbids without the flag, exactly why `test:e2e` already carried it |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified | Slice 4 tasks marked `[x]` |
+
+Scope discipline: `src/ws/ws.module.ts` was deliberately NOT touched. Design's file-layout
+table lists `TurnResolutionService` as one of `WsModule`'s eventual providers, but this slice's
+explicit Boundaries instruction scopes it to "`turn-resolution.service.ts` and its tests" only —
+DI registration is deferred to slice 5, when the gateway actually calls it.
+
+## The Concurrency Test
+
+What it did when run: two `Promise.all`-raced `resolve()` calls against a real,
+freshly-created `Battle` row (`IN_PROGRESS`, `reactionDeadline` 60s in the future,
+`pendingActionSkillCode: 'POWER_STRIKE'`) and two real `BattleCombatant` rows, sharing one
+`TurnResolutionService` instance and one 8-value `SequenceRandomSource` script (only 2 values
+needed if the claim serializes correctly; ample margin left so a real double-resolution would
+fail on a wrong row count rather than mask itself as script exhaustion).
+
+Result: passed on the first run, both under `node --experimental-vm-modules
+node_modules/jest/bin/jest.js src/ws/turn-resolution.service.spec.ts` directly and via the
+corrected `pnpm test`. Exactly 2 `BattleTurn` rows persisted for `(battleId, round: 1)`; both
+callers' returned `turns`, `defender.currentHp`, and `defeatedId` were identical — the loser
+re-read the winner's own result rather than computing a different one.
+
+The `updateMany` assumption HELD. Prisma's `updateMany` does re-evaluate its `WHERE` after
+the row lock releases under Postgres READ COMMITTED, exactly as design's "Transaction
+Boundaries" section asserted. The named `SELECT ... FOR UPDATE` fallback was NOT needed —
+task 4.6 required no code change beyond what 4.2 already implemented.
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 4.1-4.4, 4.7-4.8 | `src/ws/turn-resolution.service.spec.ts` (parts A/B/D) | Unit (mocked Prisma) | N/A (new file) | Written — failed on `Cannot find module './turn-resolution.service'` | Passed — 11/11 on first implementation | 11 cases across claim win/lose, reaction-present/absent, `skipDuplicates` absence, combatant HP + `reactionAvailable` (spent/preserved), `ActiveCondition` upsert, round advance, `DEFEAT` closure, P2002 re-emit | Clean — `eslint --fix` reformatted only (line-wrapping), no logic change |
+| 4.5-4.6 | `src/ws/turn-resolution.service.spec.ts` (part C) | Integration (real PostgreSQL, no mocks) | N/A (new describe block) | Written against the already-passing 4.2 implementation, per design intent — this is the validation task for an assumption the design explicitly flagged as unverified, not a behavior-first RED | Passed — 1/1 real-database concurrency assertion, first run | Single case: the concurrent-race scenario is the whole triangulation this task calls for; a second racer-count would not exercise a different code path | None needed |
+
+Note on 4.5's RED status: unlike a conventional TDD RED (test fails because the production
+code does not exist yet), task 4.5 by design tests an assumption underneath already-implemented
+code (`resolveTurn`'s claim, from 4.2) — the design explicitly names it "the design's flagged
+unvalidated assumption" and provides a named contingency (4.6) for exactly the case where this
+test would have gone RED against correct-looking code. It passed GREEN on the first run, which
+is the reported, positive answer to the question the task exists to ask.
+
+### Test Summary
+- Total tests written: 12 (11 unit + 1 real-database concurrency)
+- Total tests passing: 384/384 unit (full suite, up from 372), 37/37 e2e (unchanged, full suite)
+- Layers used: Unit/mocked-Prisma (11 new; 384 total), Integration/real-database (1 new)
+- Pure functions/services created: `TurnResolutionService` (one new injectable, no new pure
+  functions — it is a thin transactional orchestrator around the unchanged `src/combat` engine,
+  per design's "reimplements none of the engine's rules")
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `node --experimental-vm-modules node_modules/jest/bin/jest.js src/ws/turn-resolution.service.spec.ts` -> 1 suite, 12/12 passing (11 mocked + 1 real-database) |
+| Runtime harness command/scenario and exact result | `pnpm test` (full unit suite, now `--experimental-vm-modules`) -> 39 suites, 384/384 passing; `pnpm test:e2e` -> 7 suites, 37/37 passing, all pre-existing e2e still green; `pnpm build` -> clean, `dist/main.js` confirmed at dist root |
+| Rollback boundary | Revert the 4 slice-4 commits (`083b1fc`..`1e539a2`); `turn-resolution.service.ts` and its spec are both new, self-contained files under `src/ws/`, referenced by nothing else yet (not wired into `ws.module.ts` or the gateway) — deleting both files and reverting the one-line `package.json` script change removes the entire slice cleanly |
+
+## Verification Detail
+
+- `pnpm test`: 39 suites, 384/384 tests passing (372 pre-existing + 12 new)
+- `pnpm test:e2e`: 7 suites, 37/37 tests passing, unchanged from slice 3 — this slice touches no
+  gateway or session code
+- `pnpm lint`: clean (`eslint --fix` reformatted line-wrapping only, no logic change)
+- `npx tsc --noEmit`: clean, no errors
+- `pnpm build`: clean; `dist/main.js` confirmed at the root of `dist/`
+- Logic-line diff: `git diff --numstat feat/ws-battle-rooms...feat/ws-turn-resolution --
+  'src/**/*.ts' ':!*.spec.ts' | awk '{s+=$1} END {print s}'` = exactly 400 (budget 400,
+  forecast 170-240 — at the ceiling, not over it; see Risks below)
+
+## Deviations from Design
+
+1. `resolve()`'s parameter names. Tasks.md's prose names them `action, reaction`; the
+   implementation names them `actionSkillCode: string, reactionSkillCode: string | null` for
+   clarity, since the sequence diagram's `resolve(battleId, round, reactionSkillCode)` (3
+   params) and tasks.md's own 4-param description disagree on whether the action skill code is
+   a parameter at all. Tasks.md's literal 4-parameter description was followed as the more
+   specific, phase-scoped instruction.
+2. `persistBattleAdvance`'s round-7 scope. Design's "Round advancement" section describes
+   the full per-turn cycle as "increments `currentRound` and flips `activeUserId`, then calls
+   `startRound` for the incoming actor only." Only the increment+flip half is implemented
+   here, exactly matching the Transaction Boundaries table's own row 7 wording ("advance
+   `currentRound` + `activeUserId`, or `closeBattle` fields") and the sequence diagram, where the
+   `startRound` call is a visibly separate step the gateway makes after `battle:turn_resolved`
+   is emitted — that belongs to slice 5/6, which own the gateway and its post-resolution
+   orchestration.
+3. `persistConditions` handles all three condition event types generically, even though
+   only `CONDITION_APPLIED` can currently fire from inside `resolveTurn` itself (`CONDITION_
+   TICKED`/`_EXPIRED` are `startRound`-only events, per `src/combat/state/round.ts`). Task 4.3's
+   own wording ("mirrors `CONDITION_APPLIED`/`CONDITION_TICKED`/`CONDITION_EXPIRED`") asks for
+   the mapping to be complete, not conditional on which events the engine happens to emit today.
+
+## Issues Found
+
+None in the implementation. One project-level gap found and fixed: `pnpm test` could not
+instantiate a real `PrismaClient` at all before this slice (every prior unit spec mocked
+Prisma) — see the `package.json` change above.
+
+## Native Runtime Attempt Authority (Slice 4)
+
+`gentle-ai sdd-attempt acquire` (`ph6-slice4-acq-child-1`) returned `state: "proceed"` with the
+parent-issued token, `--max-changed-lines 900`. `gentle-ai sdd-attempt settle`
+(`ph6-slice4-settle-1`, `outcome: passed`, `evidence-revision:
+sha256:80467cc7330627c7862791e897f0c4818b96c404ae3144c14aa0cbf9936d33a4`) returned
+`state: "blocked"`, `reason: "maintainer_decision"`. `sdd-attempt status` confirms why:
+this attempt's own everything-included changed-line count is **1165** (evidence-revision-scoped:
+every byte `git diff` touches across `turn-resolution.service.ts`, its spec file including the
+real-database part C, and the one-line `package.json` script change — not just the 400
+review-budget **logic** lines measured separately) against the `--max-changed-lines 900`
+ceiling set at `acquire`. `changed_line_budget_exceeded: true`, `decision_required: true`,
+`next_action: "reset"` — same class of finding as slices 0 and 1: a maintainer must run
+`gentle-ai sdd-attempt reset` with the `--expected-revision` `status` prints before slice 5 can
+acquire attempt authority. This is the native runtime's own everything-included budget, separate
+from and stricter than the review workload's 400 **logic-line** budget (which this slice hit
+exactly at 400, not exceeded); it does not affect the correctness or completeness of slice 4's
+implementation — all tests pass, including the real-database concurrency test.
+
+## Workload / PR Boundary (Slice 4)
+
+- Mode: stacked PR slice (`stacked-to-main` chain strategy)
+- Current work unit: Slice 4 — "Turn resolution: the atomic claim, engine invocation, and
+  idempotent persistence" (PR 4)
+- Boundary: starts at `c4d6b54` (slice 3 tip), ends at `1e539a2`; 4 new commits (`083b1fc` RED
+  parts A/B/D, `dbbe4e8` GREEN parts A/B/D, `f806180` RED+infra part C, `1e539a2` tasks.md)
+- Estimated review budget impact: exactly 400 logic lines against the 400 budget — at the
+  ceiling, well above the 170-240 forecast. The single new file (`turn-resolution.service.ts`)
+  carries the transaction's full seven-statement sequence, three private persistence helpers,
+  and the idempotent re-read path; splitting it further would fragment one atomic transaction
+  across files, which the design explicitly does not want. No margin remains in this slice for
+  a follow-up fix without exceeding budget — a correction would need to land as part of slice
+  5's own budget instead of amending this PR.
+- PR 4 not opened; branch not pushed, per instructions. Local commits only, on
+  `feat/ws-turn-resolution`
+
+## Key Learnings (Slice 4)
+
+1. Prisma's `updateMany` genuinely does re-evaluate its `WHERE` clause after a row lock releases
+   under Postgres READ COMMITTED — verified against a real database with two concurrently raced
+   transactions, not assumed: the compare-and-clear claim is sufficient on its own, and the
+   `SELECT ... FOR UPDATE` fallback exists only as an unused safety net.
+2. `resolveTurn`'s returned `defender.reactionAvailable` is always the unchanged input value —
+   the engine never writes it (only `startRound` does) — so a caller that persists it verbatim
+   would silently never spend a reaction; the correct persisted value has to be computed from
+   `turns[1].skillCode !== null`, not read off the engine's return.
+3. Prisma 7's WASM query compiler loads via a dynamic `import()`, which fails under Jest's
+   default CommonJS sandbox with "invoked without --experimental-vm-modules" — this only
+   surfaces the first time a unit spec instantiates a real `PrismaClient` rather than mocking
+   it, which is why 372 prior unit tests never hit it.
+4. Throwing a marker error (`ClaimLostError`) from inside an interactive `$transaction` callback
+   and catching it just outside is a clean way to force a rollback-then-fall-through-to-a-
+   separate-read, without needing the transaction callback to return a discriminated "did I
+   claim it" result that every caller would have to check.
+5. A `createMany` without `skipDuplicates` inside an interactive transaction rolls back
+   everything already written in that same transaction on a `P2002` — including the claim's own
+   `updateMany` — which is why the idempotent re-read has to run as a separate, non-`tx`
+   read after the transaction has already unwound.
