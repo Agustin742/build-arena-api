@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { BuildModule } from './build/build.module';
 import { numberEnv } from './common/env';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { FriendshipModule } from './friendship/friendship.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SkillModule } from './skill/skill.module';
@@ -28,6 +29,7 @@ const DEFAULT_THROTTLE_LIMIT = 100;
     AuthModule,
     SkillModule,
     BuildModule,
+    FriendshipModule,
   ],
   providers: [
     {
