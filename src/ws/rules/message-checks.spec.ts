@@ -95,13 +95,16 @@ describe('V2 — the battle must be in the right status', () => {
 
 describe('V3 — turn ownership and the reaction window', () => {
   it('admits an action from the active player', () => {
-    expect(check(baseCtx({ intent: 'ACTION', activeUserId: ACTOR }))).toBeNull();
+    expect(
+      check(baseCtx({ intent: 'ACTION', activeUserId: ACTOR })),
+    ).toBeNull();
   });
 
   it('refuses an action from the non-active player as NOT_YOUR_TURN', () => {
-    expect(
-      check(baseCtx({ intent: 'ACTION', activeUserId: OTHER })),
-    ).toEqual({ code: 'NOT_YOUR_TURN', message: 'It is not your turn' });
+    expect(check(baseCtx({ intent: 'ACTION', activeUserId: OTHER }))).toEqual({
+      code: 'NOT_YOUR_TURN',
+      message: 'It is not your turn',
+    });
   });
 
   it('refuses a second action from the active player while their window is open as ALREADY_DECLARED', () => {
@@ -171,9 +174,7 @@ describe('V3 — turn ownership and the reaction window', () => {
   });
 
   it('does not apply to JOIN', () => {
-    expect(
-      check(baseCtx({ intent: 'JOIN', activeUserId: OTHER })),
-    ).toBeNull();
+    expect(check(baseCtx({ intent: 'JOIN', activeUserId: OTHER }))).toBeNull();
   });
 });
 
@@ -317,13 +318,13 @@ describe('V6 — the reaction must still be available', () => {
 
 describe('V7 — no turn already recorded at this slot', () => {
   it('admits a message for a free slot', () => {
-    expect(check(baseCtx({ intent: 'ACTION', slotOccupied: false }))).toBeNull();
+    expect(
+      check(baseCtx({ intent: 'ACTION', slotOccupied: false })),
+    ).toBeNull();
   });
 
   it('refuses a message for a slot that already has a turn', () => {
-    expect(
-      check(baseCtx({ intent: 'ACTION', slotOccupied: true })),
-    ).toEqual({
+    expect(check(baseCtx({ intent: 'ACTION', slotOccupied: true }))).toEqual({
       code: 'TURN_ALREADY_RECORDED',
       message: 'A turn is already recorded for this slot',
     });
@@ -354,9 +355,9 @@ describe('authorize', () => {
   it.each<MessageIntent>(['JOIN', 'ACTION', 'REACTION'])(
     'is a stranger to a non-existent battle exactly as it is to a real one, for %s',
     (intent) => {
-      expect(authorize(intent, baseCtx({ intent, isParticipant: false }))).toEqual(
-        { code: 'NOT_FOUND', message: 'Battle not found' },
-      );
+      expect(
+        authorize(intent, baseCtx({ intent, isParticipant: false })),
+      ).toEqual({ code: 'NOT_FOUND', message: 'Battle not found' });
     },
   );
 });
