@@ -79,6 +79,8 @@ model Build {
   skills     BuildSkill[]
   combatants BattleCombatant[]
 
+  challenges Battle[] @relation("BattleChallengerBuild")
+
   @@unique([userId, name])
   @@index([userId])
 }
@@ -125,27 +127,36 @@ model Friendship {
 }
 
 model Battle {
-  id           String       @id @default(uuid())
-  challengerId String
-  opponentId   String
-  status       BattleStatus @default(PENDING)
-  ranked       Boolean      @default(true)
-  winnerId     String?
-  currentRound Int          @default(0)
-  activeUserId String?
-  createdAt    DateTime     @default(now())
-  startedAt    DateTime?
-  endedAt      DateTime?
+  id                String       @id @default(uuid())
+  challengerId      String
+  opponentId        String
+  // The build the challenger committed to when the challenge was sent. It
+  // waits here so that BOTH combatants can be frozen at the same instant: the
+  // instant the challenge is accepted. Nullable and SET NULL for the same
+  // reason as BattleCombatant.buildId: a deleted build must not take a
+  // finished battle's history with it.
+  challengerBuildId String?
+  status            BattleStatus @default(PENDING)
+  ranked            Boolean      @default(true)
+  winnerId          String?
+  currentRound      Int          @default(0)
+  activeUserId      String?
+  createdAt         DateTime     @default(now())
+  startedAt         DateTime?
+  endedAt           DateTime?
 
   challenger User  @relation("BattleChallenger", fields: [challengerId], references: [id])
   opponent   User  @relation("BattleOpponent", fields: [opponentId], references: [id])
   winner     User? @relation("BattleWinner", fields: [winnerId], references: [id])
+
+  challengerBuild Build? @relation("BattleChallengerBuild", fields: [challengerBuildId], references: [id], onDelete: SetNull)
 
   combatants BattleCombatant[]
   turns      BattleTurn[]
 
   @@index([challengerId, status])
   @@index([opponentId, status])
+  @@index([challengerBuildId])
 }
 
 model BattleCombatant {

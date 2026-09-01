@@ -394,27 +394,31 @@ model Friendship {
 }
 
 model Battle {
-  id           String       @id @default(uuid())
-  challengerId String
-  opponentId   String
-  status       BattleStatus @default(PENDING)
-  ranked       Boolean      @default(true)
-  winnerId     String?
-  currentRound Int          @default(0)
-  activeUserId String?
-  createdAt    DateTime     @default(now())
-  startedAt    DateTime?
-  endedAt      DateTime?
+  id                String       @id @default(uuid())
+  challengerId      String
+  opponentId        String
+  challengerBuildId String?
+  status            BattleStatus @default(PENDING)
+  ranked            Boolean      @default(true)
+  winnerId          String?
+  currentRound      Int          @default(0)
+  activeUserId      String?
+  createdAt         DateTime     @default(now())
+  startedAt         DateTime?
+  endedAt           DateTime?
 
   challenger User  @relation("BattleChallenger", fields: [challengerId], references: [id])
   opponent   User  @relation("BattleOpponent", fields: [opponentId], references: [id])
   winner     User? @relation("BattleWinner", fields: [winnerId], references: [id])
+
+  challengerBuild Build? @relation("BattleChallengerBuild", fields: [challengerBuildId], references: [id], onDelete: SetNull)
 
   combatants BattleCombatant[]
   turns      BattleTurn[]
 
   @@index([challengerId, status])
   @@index([opponentId, status])
+  @@index([challengerBuildId])
 }
 
 model BattleCombatant {
@@ -477,6 +481,9 @@ model BattleTurn {
 
 **`BattleCombatant` guarda una copia de los atributos, no solo una referencia a `Build`.**
 Si el jugador edita o borra su build en mitad de una batalla, el combate no puede cambiar de reglas a mitad de camino. Los atributos, la Clase de Armadura y los puntos de vida máximos se **congelan** al iniciar la batalla. `buildId` queda como referencia opcional, solo para historial, y se anula si la build desaparece.
+
+**`Battle` recuerda la build del desafiante desde que se manda el desafío.**
+El congelado ocurre al **aceptar**, y ahí se crean los dos `BattleCombatant` de una sola vez. Pero el desafiante eligió su build antes, cuando mandó el desafío, y esa elección tiene que esperar en algún lado mientras la batalla está `PENDING`: esa es `challengerBuildId`. Congelar a los dos en el mismo instante impide que uno vea la build del rival y edite la suya antes de que arranque el combate. La columna es opcional y se anula si la build desaparece, por el mismo motivo que `BattleCombatant.buildId`: borrar una build no puede llevarse puesto el historial de una batalla terminada. Un desafío pendiente cuya build ya no existe no se puede aceptar, y la API lo dice.
 
 **`Friendship` es una relación muchos a muchos sobre la misma tabla.**
 Requiere dos relaciones con nombre explícito (`FriendshipRequester` y `FriendshipAddressee`), porque Prisma no puede inferir cuál es cuál. Se guarda **una sola fila por amistad**, lo que implica dos consecuencias: consultar los amigos de alguien exige mirar las dos columnas, y hay que impedir que existan a la vez `A → B` y `B → A`. El `@@unique([requesterId, addresseeId])` solo cubre la mitad; la otra mitad es una regla del service.
