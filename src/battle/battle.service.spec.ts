@@ -455,4 +455,93 @@ describe('BattleService', () => {
       );
     });
   });
+
+  describe('findForParticipant', () => {
+    /** The full session row: battle, both combatants, turns, conditions. */
+    const sessionRow = () =>
+      row({
+        status: BattleStatus.IN_PROGRESS,
+        currentRound: 2,
+        activeUserId: ME,
+        combatants: [
+          {
+            id: 'combatant-1',
+            userId: ME,
+            currentHp: 20,
+            conditions: [
+              { id: 'cond-1', type: 'POISONED', roundsRemaining: 2 },
+            ],
+          },
+          { id: 'combatant-2', userId: RIVAL, currentHp: 25, conditions: [] },
+        ],
+        turns: [
+          { id: 'turn-1', round: 1, sequence: 1, actorId: ME },
+          { id: 'turn-2', round: 1, sequence: 2, actorId: RIVAL },
+        ],
+      });
+
+    it('returns null for a battle the caller is not in, without throwing', async () => {
+      battle.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.findForParticipant(BATTLE_ID, ME),
+      ).resolves.toBeNull();
+    });
+
+    it('returns null for a battle that does not exist, same as a stranger', async () => {
+      // The point of findForParticipant: the socket layer cannot tell "no
+      // such battle" apart from "not yours" — both a scoped findFirst miss.
+      battle.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.findForParticipant('does-not-exist', ME),
+      ).resolves.toBeNull();
+    });
+
+    it('returns the full session row for a participant', async () => {
+      const full = sessionRow();
+      battle.findFirst.mockResolvedValue(full);
+
+      await expect(service.findForParticipant(BATTLE_ID, ME)).resolves.toEqual(
+        full,
+      );
+    });
+
+    it('includes combatants with conditions and turns ordered by round then sequence', async () => {
+      battle.findFirst.mockResolvedValue(sessionRow());
+
+      await service.findForParticipant(BATTLE_ID, ME);
+
+      const [call] = battle.findFirst.mock.calls as [
+        [
+          {
+            include: {
+              combatants: { include: { conditions: true } };
+              turns: { orderBy: { round: string; sequence: string }[] };
+            };
+          },
+        ],
+      ];
+
+      expect(call[0].include).toMatchObject({
+        combatants: { include: { conditions: true } },
+        turns: { orderBy: [{ round: 'asc' }, { sequence: 'asc' }] },
+      });
+    });
+
+    it('scopes the lookup to the caller, the same clause REST uses', async () => {
+      battle.findFirst.mockResolvedValue(null);
+
+      await service.findForParticipant(BATTLE_ID, ME);
+
+      const [call] = battle.findFirst.mock.calls as [
+        [{ where: { id: string; OR: Record<string, string>[] } }],
+      ];
+
+      expect(call[0].where).toMatchObject({
+        id: BATTLE_ID,
+        OR: [{ challengerId: ME }, { opponentId: ME }],
+      });
+    });
+  });
 });

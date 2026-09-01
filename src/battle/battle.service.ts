@@ -14,13 +14,18 @@ import { RANDOM_SOURCE } from '../common/random-source.token';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { toPublicBattle } from './battle.mapper';
-import type { BattleWithPlayers, PublicBattle } from './battle.mapper';
+import type {
+  BattleSessionRow,
+  BattleWithPlayers,
+  PublicBattle,
+} from './battle.mapper';
 import type { AcceptBattleDto } from './dto/accept-battle.dto';
 import type { CreateBattleDto } from './dto/create-battle.dto';
 import {
   applyTransition,
   freezeCombatant,
   isRanked,
+  participantClause,
   validateChallenge,
 } from './rules';
 import type {
@@ -124,6 +129,28 @@ export class BattleService {
       await this.involvingCaller(id, currentUserId),
       currentUserId,
     );
+  }
+
+  /**
+   * The WebSocket gateway's read. Unlike `involvingCaller`, this never
+   * throws: a stranger and a non-existent battle are the same `null` here,
+   * so no HTTP exception ever has to cross into the socket layer. The
+   * `include` carries everything a session needs to resume after a
+   * reconnect — both frozen stat blocks, active conditions, and the full
+   * turn history in the order it was played.
+   */
+  async findForParticipant(
+    id: string,
+    currentUserId: string,
+  ): Promise<BattleSessionRow | null> {
+    return this.prisma.battle.findFirst({
+      where: { id, OR: participantClause(currentUserId) },
+      include: {
+        ...WITH_PLAYERS,
+        combatants: { include: { conditions: true } },
+        turns: { orderBy: [{ round: 'asc' }, { sequence: 'asc' }] },
+      },
+    });
   }
 
   /**
@@ -284,11 +311,6 @@ export class BattleService {
     return battle;
   }
 }
-
-const participantClause = (currentUserId: string) => [
-  { challengerId: currentUserId },
-  { opponentId: currentUserId },
-];
 
 /**
  * A participant who may not make this move gets a 403 that names the reason:

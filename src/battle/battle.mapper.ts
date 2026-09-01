@@ -1,10 +1,26 @@
 import type { PublicPlayer } from '../common/public-player';
-import type { Battle } from '../generated/prisma/client';
+import type {
+  ActiveCondition,
+  Battle,
+  BattleCombatant,
+  BattleTurn,
+} from '../generated/prisma/client';
 import type { BattleStatus } from '../generated/prisma/enums';
 
 export type BattleWithPlayers = Battle & {
   challenger: PublicPlayer;
   opponent: PublicPlayer;
+};
+
+/**
+ * The full row the WebSocket session reads: the battle, both combatants with
+ * their active conditions, and the turn history ordered `round, sequence`.
+ * `findForParticipant` returns this shape (or `null`), never an HTTP
+ * exception, so the socket layer stays free of REST's error vocabulary.
+ */
+export type BattleSessionRow = BattleWithPlayers & {
+  combatants: (BattleCombatant & { conditions: ActiveCondition[] })[];
+  turns: BattleTurn[];
 };
 
 export type PublicBattle = {
