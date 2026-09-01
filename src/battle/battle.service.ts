@@ -21,6 +21,7 @@ import {
   applyTransition,
   freezeCombatant,
   isRanked,
+  participantClause,
   validateChallenge,
 } from './rules';
 import type {
@@ -284,11 +285,6 @@ export class BattleService {
     return battle;
   }
 }
-
-const participantClause = (currentUserId: string) => [
-  { challengerId: currentUserId },
-  { opponentId: currentUserId },
-];
 
 /**
  * A participant who may not make this move gets a 403 that names the reason:
