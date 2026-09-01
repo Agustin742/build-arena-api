@@ -150,7 +150,7 @@ export class BattleService {
         combatants: { include: { conditions: true } },
         turns: { orderBy: [{ round: 'asc' }, { sequence: 'asc' }] },
       },
-    }) as Promise<BattleSessionRow | null>;
+    });
   }
 
   /**

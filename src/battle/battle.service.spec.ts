@@ -468,7 +468,9 @@ describe('BattleService', () => {
             id: 'combatant-1',
             userId: ME,
             currentHp: 20,
-            conditions: [{ id: 'cond-1', type: 'POISONED', roundsRemaining: 2 }],
+            conditions: [
+              { id: 'cond-1', type: 'POISONED', roundsRemaining: 2 },
+            ],
           },
           { id: 'combatant-2', userId: RIVAL, currentHp: 25, conditions: [] },
         ],
