@@ -1,18 +1,40 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 
 import { Prisma } from '../generated/prisma/client';
-import { BattleStatus } from '../generated/prisma/enums';
+import { BattleStatus, FriendshipStatus } from '../generated/prisma/enums';
 import type { PrismaService } from '../prisma/prisma.service';
+import { SequenceRandomSource } from '../combat';
 import { BattleService } from './battle.service';
 
 const ME = '11111111-0000-4000-8000-000000000001';
 const RIVAL = '22222222-0000-4000-8000-000000000002';
 const BATTLE_ID = '33333333-0000-4000-8000-000000000003';
 const BUILD_ID = '44444444-0000-4000-8000-000000000004';
+const OPPONENT_BUILD_ID = '55555555-0000-4000-8000-000000000005';
+
+const challengerBuild = {
+  id: BUILD_ID,
+  strength: 15,
+  magic: 13,
+  dexterity: 12,
+  constitution: 10,
+};
+
+const opponentBuild = {
+  id: OPPONENT_BUILD_ID,
+  strength: 10,
+  magic: 15,
+  dexterity: 13,
+  constitution: 12,
+};
+
+/** What a frozen combatant looks like on the way into the database. */
+type FrozenRow = { userId: string; buildId: string; armorClass: number };
 
 const players = {
   challenger: { id: ME, username: 'ada', rating: 1200 },
@@ -67,9 +89,40 @@ describe('BattleService', () => {
     create: jest.fn(),
     update: jest.fn(),
   };
-  const build = { findFirst: jest.fn() };
-  const prisma = { battle, build } as unknown as PrismaService;
-  const service = new BattleService(prisma);
+  const build = { findFirst: jest.fn(), findUnique: jest.fn() };
+  const friendship = { findFirst: jest.fn() };
+  const prisma = { battle, build, friendship } as unknown as PrismaService;
+  // Scripted rolls, so initiative is replayable instead of random. Two draws
+  // per freeze, with room to spare across the suite.
+  const service = new BattleService(
+    prisma,
+    new SequenceRandomSource(Array.from({ length: 40 }, () => 10)),
+  );
+
+  /** The single create the service issued, typed for reading. */
+  const createArgs = () => {
+    const [call] = battle.create.mock.calls as [
+      [{ data: { ranked: boolean; challengerBuildId: string } }],
+    ];
+
+    return call[0];
+  };
+
+  /** The single update the service issued, typed for reading. */
+  const updateArgs = () => {
+    const [call] = battle.update.mock.calls as [
+      [
+        {
+          data: {
+            status: BattleStatus;
+            combatants: { create: FrozenRow[] };
+          };
+        },
+      ],
+    ];
+
+    return call[0];
+  };
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -77,7 +130,7 @@ describe('BattleService', () => {
 
   describe('challenge', () => {
     it('opens a pending challenge towards another player', async () => {
-      build.findFirst.mockResolvedValue({ id: BUILD_ID });
+      build.findFirst.mockResolvedValue(challengerBuild);
       battle.create.mockResolvedValue(row());
 
       const created = await service.challenge(ME, {
@@ -93,7 +146,7 @@ describe('BattleService', () => {
     });
 
     it('takes the challenger from the token, never from the payload', async () => {
-      build.findFirst.mockResolvedValue({ id: BUILD_ID });
+      build.findFirst.mockResolvedValue(challengerBuild);
       battle.create.mockResolvedValue(row());
 
       await service.challenge(ME, {
@@ -110,7 +163,7 @@ describe('BattleService', () => {
     });
 
     it('remembers the build so the freeze has something to read later', async () => {
-      build.findFirst.mockResolvedValue({ id: BUILD_ID });
+      build.findFirst.mockResolvedValue(challengerBuild);
       battle.create.mockResolvedValue(row());
 
       await service.challenge(ME, { opponentId: RIVAL, buildId: BUILD_ID });
@@ -155,12 +208,53 @@ describe('BattleService', () => {
     });
 
     it('answers 404 when the other player does not exist', async () => {
-      build.findFirst.mockResolvedValue({ id: BUILD_ID });
+      build.findFirst.mockResolvedValue(challengerBuild);
       battle.create.mockRejectedValue(foreignKeyViolation);
 
       await expect(
         service.challenge(ME, { opponentId: RIVAL, buildId: BUILD_ID }),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('ranks a battle between players who are not friends', async () => {
+      build.findFirst.mockResolvedValue(challengerBuild);
+      friendship.findFirst.mockResolvedValue(null);
+      battle.create.mockResolvedValue(row());
+
+      await service.challenge(ME, { opponentId: RIVAL, buildId: BUILD_ID });
+
+      expect(createArgs().data.ranked).toBe(true);
+    });
+
+    it('does not rank a battle between accepted friends', async () => {
+      build.findFirst.mockResolvedValue(challengerBuild);
+      friendship.findFirst.mockResolvedValue({
+        status: FriendshipStatus.ACCEPTED,
+      });
+      battle.create.mockResolvedValue(row({ ranked: false }));
+
+      await service.challenge(ME, { opponentId: RIVAL, buildId: BUILD_ID });
+
+      expect(createArgs().data.ranked).toBe(false);
+    });
+
+    it('looks for the friendship in both directions', async () => {
+      // One row per friendship, opened in whichever direction: reading only
+      // the column you sent would rank half of the matches between friends.
+      build.findFirst.mockResolvedValue(challengerBuild);
+      friendship.findFirst.mockResolvedValue(null);
+      battle.create.mockResolvedValue(row());
+
+      await service.challenge(ME, { opponentId: RIVAL, buildId: BUILD_ID });
+
+      const [call] = friendship.findFirst.mock.calls as [
+        [{ where: { OR: { requesterId: string; addresseeId: string }[] } }],
+      ];
+
+      expect(call[0].where.OR).toEqual([
+        { requesterId: ME, addresseeId: RIVAL },
+        { requesterId: RIVAL, addresseeId: ME },
+      ]);
     });
   });
 
@@ -178,21 +272,80 @@ describe('BattleService', () => {
   });
 
   describe('accept', () => {
-    it('accepts a challenge addressed to the caller', async () => {
+    /** Both sides pick a build, and both builds are still there. */
+    const bothBuildsReady = () => {
       battle.findFirst.mockResolvedValue(incoming());
+      build.findUnique.mockResolvedValue(challengerBuild);
+      build.findFirst.mockResolvedValue(opponentBuild);
       battle.update.mockResolvedValue(
         incoming({ status: BattleStatus.ACCEPTED }),
       );
+    };
 
-      const accepted = await service.accept(BATTLE_ID, ME);
+    it('accepts a challenge addressed to the caller', async () => {
+      bothBuildsReady();
 
-      expect(battle.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: BATTLE_ID },
-          data: { status: BattleStatus.ACCEPTED },
-        }),
-      );
+      const accepted = await service.accept(BATTLE_ID, ME, {
+        buildId: OPPONENT_BUILD_ID,
+      });
+
+      expect(updateArgs().data.status).toBe(BattleStatus.ACCEPTED);
       expect(accepted.status).toBe(BattleStatus.ACCEPTED);
+    });
+
+    it('freezes both combatants in the statement that flips the status', async () => {
+      // One statement, one transaction. If the freeze were a second call, a
+      // battle could end up accepted with nobody in it.
+      bothBuildsReady();
+
+      await service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID });
+
+      const frozen = updateArgs().data.combatants.create;
+
+      expect(frozen).toHaveLength(2);
+      expect(frozen.map((combatant) => combatant.userId)).toEqual([RIVAL, ME]);
+    });
+
+    it('copies the attributes and the derived stats off each build', async () => {
+      bothBuildsReady();
+
+      await service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID });
+
+      const [challenger] = updateArgs().data.combatants.create;
+
+      expect(challenger).toMatchObject({
+        buildId: BUILD_ID,
+        strength: 15,
+        magic: 13,
+        dexterity: 12,
+        constitution: 10,
+        armorClass: 11,
+        maxHp: 30,
+        currentHp: 30,
+      });
+    });
+
+    it('refuses to accept when the challenger no longer has their build', async () => {
+      // The column is nullable so that deleting a build cannot delete a
+      // battle's history. The price is a challenge that outlived its choice,
+      // and it must not be accepted with made up numbers.
+      battle.findFirst.mockResolvedValue(incoming({ challengerBuildId: null }));
+
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(battle.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 when the accepting player does not own the build', async () => {
+      battle.findFirst.mockResolvedValue(incoming());
+      build.findUnique.mockResolvedValue(challengerBuild);
+      build.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(battle.update).not.toHaveBeenCalled();
     });
 
     it('does not let the challenger accept their own challenge', async () => {
@@ -200,9 +353,9 @@ describe('BattleService', () => {
       // participant. Only the entitlement check stops it.
       battle.findFirst.mockResolvedValue(row());
 
-      await expect(service.accept(BATTLE_ID, ME)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
       expect(battle.update).not.toHaveBeenCalled();
     });
 
@@ -211,23 +364,25 @@ describe('BattleService', () => {
         incoming({ status: BattleStatus.CANCELLED }),
       );
 
-      await expect(service.accept(BATTLE_ID, ME)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('answers 404 on a battle the caller is not in', async () => {
       battle.findFirst.mockResolvedValue(null);
 
-      await expect(service.accept(BATTLE_ID, ME)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('scopes the lookup to the caller', async () => {
       battle.findFirst.mockResolvedValue(null);
 
-      await expect(service.accept(BATTLE_ID, ME)).rejects.toThrow();
+      await expect(
+        service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID }),
+      ).rejects.toThrow();
 
       const [call] = battle.findFirst.mock.calls as [
         [{ where: { id: string; OR: Record<string, string>[] } }],

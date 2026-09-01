@@ -11,3 +11,6 @@ export type {
   TransitionOutcome,
   TransitionRule,
 } from './battle-transitions';
+
+export { freezeCombatant } from './combatant-freeze';
+export type { CombatantAttributes, FrozenCombatant } from './combatant-freeze';

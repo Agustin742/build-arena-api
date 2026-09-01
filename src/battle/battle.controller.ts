@@ -10,6 +10,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -22,6 +23,7 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { BattleService } from './battle.service';
+import { AcceptBattleDto } from './dto/accept-battle.dto';
 import type { PublicBattle } from './battle.mapper';
 import { BattleDto } from './dto/battle.dto';
 import { CreateBattleDto } from './dto/create-battle.dto';
@@ -81,18 +83,25 @@ export class BattleController {
 
   @Patch(':id/accept')
   @ApiOperation({
-    summary: 'Accept a challenge sent to you',
+    summary:
+      'Accept a challenge sent to you, with the build you will fight with',
     description:
-      'Being in a pending battle is not enough: only the challenged player can accept it',
+      'Being in a pending battle is not enough: only the challenged player can accept it. Accepting freezes both builds at once',
   })
   @ApiOkResponse({ type: BattleDto })
   @ApiForbiddenResponse({ description: NOT_ENTITLED })
-  @ApiNotFoundResponse({ description: FOREIGN_OR_MISSING })
+  @ApiNotFoundResponse({
+    description: `${FOREIGN_OR_MISSING}, or the build is not yours`,
+  })
+  @ApiConflictResponse({
+    description: 'The challenger no longer has the build they picked',
+  })
   accept(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: AcceptBattleDto,
   ): Promise<PublicBattle> {
-    return this.battleService.accept(id, user.id);
+    return this.battleService.accept(id, user.id, dto);
   }
 
   @Patch(':id/reject')
