@@ -12,6 +12,7 @@ import { FriendshipModule } from './friendship/friendship.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SkillModule } from './skill/skill.module';
+import { WsModule } from './ws/ws.module';
 
 const DEFAULT_THROTTLE_TTL = 60_000;
 const DEFAULT_THROTTLE_LIMIT = 100;
@@ -32,6 +33,7 @@ const DEFAULT_THROTTLE_LIMIT = 100;
     BuildModule,
     FriendshipModule,
     BattleModule,
+    WsModule,
   ],
   providers: [
     {
