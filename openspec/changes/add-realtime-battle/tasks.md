@@ -142,20 +142,21 @@ environment; every PR is opened by hand at
 
 ## Slice 2 — `feat/ws-message-checks` (base: slice 1)
 
-- [ ] 2.1 RED: `src/ws/rules/message-checks.spec.ts` — each of V1–V7 against passing and
+- [x] 2.1 RED: `src/ws/rules/message-checks.spec.ts` — each of V1–V7 against passing and
       failing input; `ALREADY_DECLARED` vs `NOT_YOUR_TURN` vs `NO_OPEN_WINDOW` stay distinct
       codes; completeness test asserting `CHECKS.map(c => c.id)` equals `['V1'..'V7']` in
       order. Covers `realtime-battle-session` V1–V7 and "Socket Room Membership Is Never
       Treated as Authorization". `test(ws): cover the seven message validations and
       completeness guard`
-- [ ] 2.2 Impl: `src/ws/rules/message-checks.ts` — `MessageIntent`, `Check`, the `CHECKS` array
+- [x] 2.2 Impl: `src/ws/rules/message-checks.ts` — `MessageIntent`, `Check`, the `CHECKS` array
       (V1 participant, V2 status, V3 turn/open-window, V4 kit membership, V5 skill-type moment,
       V6 reaction availability, V7 slot free), `authorize()`. `feat(ws): add the seven
       per-message validations declared once`
-- [ ] 2.3 Verify: `pnpm test`, `pnpm lint`, `pnpm build`. Measure diff against slice 1. Open
+- [x] 2.3 Verify: `pnpm test`, `pnpm lint`, `pnpm build`. Measure diff against slice 1. Open
       PR 2; retarget base to `feat/ws-handshake-auth`. **If this alone approaches 400, this is
       already its own PR — there is no further internal seam to split at (design keeps the
       array atomic on purpose); ask the user for a `size:exception` instead.**
+      233 logic lines measured, well within the 400 budget — no exception needed.
 
 ## Slice 3 — `feat/ws-battle-rooms` (base: slice 2)
 
