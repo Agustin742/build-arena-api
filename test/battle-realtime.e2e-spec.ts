@@ -27,6 +27,7 @@ const credentialsFor = (role: string) => ({
 
 const challenger = credentialsFor('rchl');
 const opponent = credentialsFor('ropp');
+const stranger = credentialsFor('rstr');
 
 const buildFor = (name: string) => ({
   name: `${name} ${stamp}`,
@@ -39,13 +40,26 @@ const buildFor = (name: string) => ({
 
 type BattleView = { id: string; status: string };
 
-describe('Battle realtime handshake (e2e)', () => {
+type BattleStatePayload = {
+  battleId: string;
+  status: string;
+  currentRound: number;
+  activeUserId: string | null;
+  combatants: unknown[];
+};
+
+type BattleErrorPayload = { code: string; message: string; event?: string };
+
+describe('Battle realtime handshake and room admission (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let url: string;
   let sockets: ClientSocket[] = [];
+  let battleId: string;
+  let challengerToken: string;
+  let strangerToken: string;
 
-  const emails = [challenger.email, opponent.email];
+  const emails = [challenger.email, opponent.email, stranger.email];
 
   const register = async (credentials: typeof challenger): Promise<string> => {
     await request(app.getHttpServer())
@@ -98,8 +112,9 @@ describe('Battle realtime handshake (e2e)', () => {
     // `[::1]` form socket.io-client does not always dial cleanly.
     url = `http://127.0.0.1:${address.port}`;
 
-    const challengerToken = await register(challenger);
+    challengerToken = await register(challenger);
     const opponentToken = await register(opponent);
+    strangerToken = await register(stranger);
 
     const challengerBuildId = await createBuild(challengerToken, 'Challenger');
     const opponentBuildId = await createBuild(opponentToken, 'Opponent');
@@ -115,7 +130,7 @@ describe('Battle realtime handshake (e2e)', () => {
       .send({ opponentId: opponentUser.id, buildId: challengerBuildId })
       .expect(201);
 
-    const battleId = (challengeResponse.body as BattleView).id;
+    battleId = (challengeResponse.body as BattleView).id;
 
     await request(app.getHttpServer())
       .patch(`/battles/${battleId}/accept`)
@@ -123,6 +138,37 @@ describe('Battle realtime handshake (e2e)', () => {
       .send({ buildId: opponentBuildId })
       .expect(200);
   }, NETWORK_TIMEOUT);
+
+  /** An authenticated client, resolved once the handshake succeeds. */
+  const connectAuthenticated = (token: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const client = ioClient(url, {
+        transports: ['websocket'],
+        reconnection: false,
+        auth: { token },
+      });
+      sockets.push(client);
+      client.on('connect', () => resolve(client));
+      client.on('connect_error', reject);
+    });
+
+  /** Emits `battle:join` and resolves whichever of the two answers arrives. */
+  const join = (
+    client: ClientSocket,
+    id: string,
+  ): Promise<
+    | { event: 'state'; payload: BattleStatePayload }
+    | { event: 'error'; payload: BattleErrorPayload }
+  > =>
+    new Promise((resolve) => {
+      client.once('battle:state', (payload: BattleStatePayload) =>
+        resolve({ event: 'state', payload }),
+      );
+      client.once('battle:error', (payload: BattleErrorPayload) =>
+        resolve({ event: 'error', payload }),
+      );
+      client.emit('battle:join', { battleId: id });
+    });
 
   afterEach(() => {
     for (const socket of sockets) {
@@ -165,6 +211,50 @@ describe('Battle realtime handshake (e2e)', () => {
 
       expect(outcome).toBe('refused');
       expect(client.connected).toBe(false);
+    },
+    NETWORK_TIMEOUT,
+  );
+
+  it(
+    'admits a participant and returns the assembled battle:state',
+    async () => {
+      const client = await connectAuthenticated(challengerToken);
+
+      const outcome = await join(client, battleId);
+
+      expect(outcome.event).toBe('state');
+      const state = outcome.payload as BattleStatePayload;
+
+      expect(state.battleId).toBe(battleId);
+      // Joining an ACCEPTED battle is what fires the shared START transition.
+      expect(state.status).toBe('IN_PROGRESS');
+      expect(state.currentRound).toBe(1);
+      expect(state.combatants).toHaveLength(2);
+    },
+    NETWORK_TIMEOUT,
+  );
+
+  it(
+    'refuses a non-participant and a non-existent battle with the byte-identical generic message',
+    async () => {
+      const strangerClient = await connectAuthenticated(strangerToken);
+      const strangerOutcome = await join(strangerClient, battleId);
+
+      const missingClient = await connectAuthenticated(challengerToken);
+      const missingOutcome = await join(
+        missingClient,
+        '00000000-0000-4000-8000-000000000000',
+      );
+
+      expect(strangerOutcome.event).toBe('error');
+      expect(missingOutcome.event).toBe('error');
+      // A stranger to a real battle and a battle that never existed must be
+      // indistinguishable — the whole point of the information-hiding rule.
+      expect(strangerOutcome.payload).toEqual(missingOutcome.payload);
+      expect(strangerOutcome.payload).toMatchObject({
+        code: 'NOT_FOUND',
+        message: 'Battle not found',
+      });
     },
     NETWORK_TIMEOUT,
   );

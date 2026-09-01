@@ -5,9 +5,10 @@ Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`)
 
 ## Status
 
-10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete.
-Slices 3–7 not started. Ready for `sdd-verify` on slices 0–2, or for `sdd-apply` to continue
-with slice 3 once PR 2 is reviewed/merged per the stacked-to-main chain strategy.
+10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete. 6/6
+Slice 3 tasks complete. Slices 4–7 not started. Ready for `sdd-verify` on slices 0–3, or for
+`sdd-apply` to continue with slice 4 once PR 3 is reviewed/merged per the stacked-to-main chain
+strategy.
 
 ## Completed Tasks (Slice 0)
 
@@ -439,3 +440,144 @@ maintainer reset was needed before this settle, unlike slices 0 and 1.
    V6) to short-circuit on it consistently — writing that short-circuit as the first line of
    each check's `run()`, rather than filtering it out earlier, keeps each check's "real" logic
    readable as the ACTION/REACTION path only.
+
+---
+
+# Slice 3 — `feat/ws-battle-rooms` (base: slice 2, `e91e3cd`)
+
+## Completed Tasks (Slice 3)
+
+- [x] 3.1 RED — `src/ws/battle-session.service.spec.ts` created: 11 tests covering
+      `load()`'s delegation to `findForParticipant`, `authorizeMessage()`'s delegation to the
+      shared `CHECKS` pipeline, and `admitJoin()`'s end-to-end behavior — the byte-identical
+      `NOT_FOUND` refusal for a stranger and a non-existent battle, the `START` transition
+      firing with initiative-based `activeUserId` selection (including the tie-break to the
+      challenger), no re-fire once already `IN_PROGRESS`, and `toStatePayload()`'s assembly
+- [x] 3.2 GREEN — `src/ws/battle-session.service.ts` created: `load()`, `authorizeMessage()`,
+      `admitJoin()` (the composed entry point: load → build a `JOIN` `SessionContext` →
+      `authorizeMessage` → fire `applyTransition('START', ...)` and persist when the battle
+      was `ACCEPTED`), `toStatePayload()`
+- [x] 3.3/3.4 GREEN — `src/ws/battle.gateway.ts` extended with the `battle:join`
+      `@SubscribeMessage` handler (room admission via `socket.join('battle:{battleId}')`,
+      `battle:state`/`battle:error` emission); `src/ws/battle-events.ts` extended with
+      `BattleJoinPayload`, `BattleStateCombatant`, `BattleStatePayload`; `src/ws/ws.module.ts`
+      registers `BattleSessionService`
+- [x] 3.5 E2E — `test/battle-realtime.e2e-spec.ts` extended: a participant joins an `ACCEPTED`
+      battle and receives `battle:state` with `status: IN_PROGRESS`, `currentRound: 1`, two
+      combatants; a non-participant and a non-existent `battleId` both receive the
+      byte-for-byte identical `battle:error` refusal
+- [x] 3.6 Verify — full unit and e2e suites green, lint clean, `tsc --noEmit` clean, build
+      clean with `dist/main.js` at dist root, logic-line diff measured at 249 (budget 400)
+
+## Files Changed (Slice 3)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `src/ws/battle-session.service.ts` | Created | `BattleSessionService`: `load()`, `authorizeMessage()`, `admitJoin()`, `toStatePayload()`; initiative-based `activeUserId` selection on `START` |
+| `src/ws/battle-session.service.spec.ts` | Created | 11 tests: load delegation, authorizeMessage delegation, admitJoin (refusal parity, START firing, tie-break, no re-fire, wrong-status), toStatePayload assembly |
+| `src/ws/battle.gateway.ts` | Modified | Added `handleJoin()` — `@SubscribeMessage(ClientEvent.JOIN)`, room admission, `battle:state`/`battle:error` emission |
+| `src/ws/battle-events.ts` | Modified | Added `BattleJoinPayload`, `BattleStateCombatant`, `BattleStatePayload` |
+| `src/ws/ws.module.ts` | Modified | Registers `BattleSessionService` as a provider |
+| `test/battle-realtime.e2e-spec.ts` | Modified | Added participant-join and non-participant/non-existent-refusal-parity e2e tests; lifted `battleId`/tokens to describe-block scope; added `connectAuthenticated`/`join` helpers and a `stranger` test user |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified | Slice 3 tasks marked `[x]` |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1/3.2 | `src/ws/battle-session.service.spec.ts` | Unit | N/A (new file) | Written — failed on `Cannot find module './battle-session.service'` | Passed — 11/11 | 11 cases: load (2), authorizeMessage (2), admitJoin (5: non-existent, stranger-parity, START-fires, tie-break, already-in-progress, wrong-status), toStatePayload (1) | Clean — `eslint --fix` reformatted only (line-wrapping), no logic change |
+| 3.3/3.4/3.5 | `test/battle-realtime.e2e-spec.ts` | E2E | 1/1 pre-existing e2e green (tokenless handshake) | Written and run against the pre-gateway-change code — both new tests timed out waiting for `battle:state`/`battle:error` (60s each), confirming RED | Passed — 3/3 in the file, 37/37 full e2e suite | 3 cases: valid join, non-participant refusal, non-existent-battle refusal (byte-identical to the non-participant case) | Clean — no follow-up changes needed after GREEN |
+
+### Test Summary
+- **Total tests written**: 13 (11 unit + 2 e2e)
+- **Total tests passing**: 372/372 unit (full suite), 37/37 e2e (full suite, 7 suites)
+- **Layers used**: Unit (11 new; 372 total), E2E (2 new; 37 total)
+- **Pure functions/services created**: `BattleSessionService` (one new injectable); `joinContext`
+  and `initiativeWinner` as private module-level helpers inside it
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm test src/ws/battle-session.service.spec.ts` -> 1 suite, 11/11 passing; `node ...jest.js --config ./test/jest-e2e.json battle-realtime` -> 1 suite, 3/3 passing |
+| Runtime harness command/scenario and exact result | Full `pnpm test:e2e --detectOpenHandles` -> 7 suites, 37/37 passing, no leaked handles, 82s total; `pnpm build` -> clean, `dist/main.js` confirmed at dist root |
+| Rollback boundary | Revert the 4 slice-3 commits (`1631869`..`a12477d`); `BattleSessionService` registration is a 2-line addition/removal in `ws.module.ts`; the `handleJoin()` method is additive to `battle.gateway.ts`; deleting `src/ws/battle-session.service.ts` and its spec removes the rest cleanly; nothing outside `src/ws/` and the one e2e spec was touched |
+
+## Verification Detail
+
+- `pnpm test`: 38 suites, 372/372 tests passing (361 pre-existing + 11 new)
+- `pnpm test:e2e --detectOpenHandles`: 7 suites, 37/37 tests passing (35 pre-existing + 2 new),
+  no leaked handles
+- `pnpm lint`: clean (`eslint --fix` reformatted the e2e spec's line-wrapping only, no logic
+  change)
+- `npx tsc --noEmit`: clean, no errors
+- `pnpm build`: clean; `dist/main.js` confirmed at the root of `dist/`
+- Logic-line diff: `git diff --numstat feat/ws-message-checks...feat/ws-battle-rooms --
+  'src/**/*.ts' ':!*.spec.ts' | awk '{s+=$1} END {print s}'` = **249** (budget 400, forecast
+  75–100 — above forecast, well within budget, same pattern as slices 1–2)
+
+## Deviations from Design
+
+None structural. Two implementation-level judgment calls the design/tasks left open:
+
+1. **Where the `START` transition fires.** The instructions say "the gateway" calls
+   `applyTransition('START', ...)`, and design's module table marks `battle.gateway.ts` as
+   "Transport only... No rule." Reading those together, the transition call and its Prisma
+   persistence were placed inside `BattleSessionService.admitJoin()` — design's own description
+   of that file as "the authorization pipeline entry point" — rather than inside the gateway
+   file itself, so the gateway stays a pure gate: authorize, join room, emit. This keeps
+   `applyTransition` reachable from exactly one place in the WS layer, matching how REST calls
+   it from exactly one place (`BattleService.move`/`accept`).
+2. **`BattleStateCombatant` instead of `CombatantView`.** `tasks.md`'s task 5.3 explicitly lists
+   `CombatantView` as a type slice 5 adds. Since slice 3's `battle:state` needs a combatant
+   shape today, it is declared under a slice-scoped name (`BattleStateCombatant`, same fields
+   as design's `CombatantView`) so slice 5 can introduce `CombatantView` cleanly as its own
+   export rather than this slice colliding with a name a later slice is tasked with creating.
+3. **Initiative-based `activeUserId` on `START`.** Design's "Round advancement" section (not
+   task 3.x's own text) specifies "`START` sets `currentRound = 1` and `activeUserId` to the
+   higher `initiative` (ties break to the challenger, deterministically)" — this was
+   implemented in `admitJoin()` reading `initiative` off the already-loaded `combatants` array,
+   with no extra database read.
+
+## Issues Found
+
+None.
+
+## Native Runtime Attempt Authority (Slice 3)
+
+`gentle-ai sdd-attempt settle` (`ph6-slice3-settle-1`) recorded outcome `passed` with
+`decision_required: false` and `next_action: "complete"` — no maintainer reset needed this
+time, unlike slices 0 and 1. The attempt's own everything-included changed-line count was 614
+(evidence-revision-scoped, includes spec/test files) against the `--max-changed-lines 700`
+ceiling set at `acquire` — comfortably inside it.
+
+## Workload / PR Boundary (Slice 3)
+
+- Mode: stacked PR slice (`stacked-to-main` chain strategy)
+- Current work unit: Slice 3 — "WebSocket battle rooms and `battle:join`" (PR 3)
+- Boundary: starts at `e91e3cd` (slice 2 tip), ends at `a12477d`; 4 new commits
+  (`1631869` RED unit, `bb6ec8d` GREEN unit, `b73373d` RED e2e, `08d5a07` GREEN gateway,
+  `a12477d` tasks.md)
+- Estimated review budget impact: 249 logic lines against the 400 budget — Low risk, above the
+  75–100 forecast but well within budget (see Deviations)
+- PR 3 not opened; branch not pushed, per instructions. Local commits only, on
+  `feat/ws-battle-rooms`
+
+## Key Learnings (Slice 3)
+
+1. `applyTransition('START', battle, actorId)` is guaranteed `allowed: true` once V1
+   (participant) and V2 (status `ACCEPTED`/`IN_PROGRESS`) have already passed for the `JOIN`
+   intent, because `START`'s rule (`ACCEPTED -> IN_PROGRESS`, `entitled: 'EITHER'`) requires
+   exactly the same two facts — the shared-table reuse is not just DRY, it makes the transition
+   call structurally unable to disagree with the check that gated it.
+2. `findForParticipant`'s scoped `findFirst` collapsing "does not exist" and "not yours" into
+   the same `null` means the `NOT_A_PARTICIPANT`/`NOT_FOUND` refusal parity test for the WS
+   layer needs no special-casing at all — both scenarios are one code path once the read itself
+   is scoped, unlike a naive `findUnique` + separate ownership check would require.
+3. A `battle:state` payload type does not need to match a later slice's fuller type by name:
+   naming this slice's combatant view `BattleStateCombatant` instead of anticipating slice 5's
+   `CombatantView` avoided a forward reference to a type that does not exist yet.
+4. Socket.IO's `client.once('battle:state', ...)` and `client.once('battle:error', ...)` raced
+   against a single `emit` is a clean way to assert "exactly one of these two mutually exclusive
+   outcomes happens," without needing a timeout-based negative assertion for the event that
+   does not fire.

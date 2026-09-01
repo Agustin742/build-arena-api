@@ -1,4 +1,5 @@
 import type { AuthenticatedUser } from '../auth/authenticated-user';
+import type { BattleStatus } from '../generated/prisma/enums';
 
 /**
  * Event names, error codes, and connection-scoped payload types shared by
@@ -48,4 +49,43 @@ export type WsErrorPayload = {
  */
 export type SocketData = {
   user: AuthenticatedUser;
+};
+
+/** Client → server: `battle:join`. */
+export type BattleJoinPayload = {
+  battleId: string;
+};
+
+/**
+ * One combatant as this slice's `battle:state` renders it. Named apart from
+ * the design's `CombatantView` because that fuller type — the same fields,
+ * shared with `battle:turn_resolved` — is declared once in slice 5; this
+ * type covers only what a join needs today.
+ */
+export type BattleStateCombatant = {
+  userId: string;
+  combatantId: string;
+  strength: number;
+  magic: number;
+  dexterity: number;
+  constitution: number;
+  armorClass: number;
+  maxHp: number;
+  currentHp: number;
+  initiative: number;
+  reactionAvailable: boolean;
+  conditions: { type: string; roundsRemaining: number }[];
+};
+
+/**
+ * Server → client: `battle:state`, limited for now to what admitting a join
+ * needs. `turns`, `openWindow` and `opponentLeft` join this same event in
+ * slice 7, once reconnection needs the full history.
+ */
+export type BattleStatePayload = {
+  battleId: string;
+  status: BattleStatus;
+  currentRound: number;
+  activeUserId: string | null;
+  combatants: BattleStateCombatant[];
 };
