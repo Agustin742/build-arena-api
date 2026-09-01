@@ -1,5 +1,10 @@
 import { BattleStatus } from '../../generated/prisma/enums';
-import { BATTLE_TRANSITIONS, applyTransition } from './battle-transitions';
+import {
+  BATTLE_CLOSURE,
+  BATTLE_TRANSITIONS,
+  applyTransition,
+  closeBattle,
+} from './battle-transitions';
 import type { BattleTransition, StoredBattle } from './battle-transitions';
 
 const CHALLENGER = '11111111-0000-4000-8000-000000000001';
@@ -119,5 +124,69 @@ describe('applyTransition', () => {
     expect(
       applyTransition('ACCEPT', battle(BattleStatus.FINISHED), STRANGER),
     ).toMatchObject({ allowed: false, reason: 'NOT_A_PARTICIPANT' });
+  });
+});
+
+describe('BATTLE_CLOSURE', () => {
+  it('is the one server-decided edge, with no entitled side', () => {
+    expect(BATTLE_CLOSURE).toEqual({
+      from: BattleStatus.IN_PROGRESS,
+      to: BattleStatus.FINISHED,
+    });
+  });
+});
+
+describe('closeBattle', () => {
+  it('closes an in-progress battle by defeat', () => {
+    expect(
+      closeBattle(battle(BattleStatus.IN_PROGRESS), CHALLENGER, 'DEFEAT'),
+    ).toEqual({
+      allowed: true,
+      to: BattleStatus.FINISHED,
+      winnerId: CHALLENGER,
+      reason: 'DEFEAT',
+    });
+  });
+
+  it('closes an in-progress battle by abandonment', () => {
+    expect(
+      closeBattle(battle(BattleStatus.IN_PROGRESS), OPPONENT, 'ABANDONMENT'),
+    ).toEqual({
+      allowed: true,
+      to: BattleStatus.FINISHED,
+      winnerId: OPPONENT,
+      reason: 'ABANDONMENT',
+    });
+  });
+
+  it.each<BattleStatus>([
+    BattleStatus.PENDING,
+    BattleStatus.ACCEPTED,
+    BattleStatus.FINISHED,
+    BattleStatus.REJECTED,
+    BattleStatus.CANCELLED,
+  ])('refuses to close a %s battle', (status) => {
+    expect(closeBattle(battle(status), CHALLENGER, 'DEFEAT')).toMatchObject({
+      allowed: false,
+      reason: 'WRONG_STATUS',
+    });
+  });
+});
+
+describe('reachable statuses', () => {
+  it('covers every BattleStatus except PENDING between BATTLE_TRANSITIONS and BATTLE_CLOSURE', () => {
+    // A structural guard: a status made reachable by some future direct
+    // `update` must fail this suite rather than silently drifting.
+    const reachable = new Set(
+      Object.values(BATTLE_TRANSITIONS)
+        .map((rule) => rule.to)
+        .concat(BATTLE_CLOSURE.to),
+    );
+
+    const allExceptPending = Object.values(BattleStatus).filter(
+      (status) => status !== BattleStatus.PENDING,
+    );
+
+    expect([...reachable].sort()).toEqual([...allExceptPending].sort());
   });
 });
