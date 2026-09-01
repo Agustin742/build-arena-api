@@ -5,9 +5,9 @@ Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`)
 
 ## Status
 
-10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. Slices 2–7 not started. Ready for
-`sdd-verify` on slices 0–1, or for `sdd-apply` to continue with slice 2 once PR 1 is
-reviewed/merged per the stacked-to-main chain strategy.
+10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete.
+Slices 3–7 not started. Ready for `sdd-verify` on slices 0–2, or for `sdd-apply` to continue
+with slice 3 once PR 2 is reviewed/merged per the stacked-to-main chain strategy.
 
 ## Completed Tasks (Slice 0)
 
@@ -284,3 +284,158 @@ problem; it does not affect the correctness or completeness of slice 1's impleme
    `handleConnection` fires, so the client only ever observes a `connect_error` event — this
    repo's e2e suite therefore has no way to assert on a REST-style status code for this
    scenario, only on which of `connect`/`connect_error` fires first.
+
+---
+
+# Slice 2 — `feat/ws-message-checks` (base: slice 1, `c272561`)
+
+## Completed Tasks (Slice 2)
+
+- [x] 2.1 RED — `src/ws/rules/message-checks.spec.ts` created: 34 tests covering each of
+      V1–V7 against passing and failing input; `ALREADY_DECLARED`/`NOT_YOUR_TURN`/
+      `NO_OPEN_WINDOW` asserted as three distinct codes; the `CHECKS.map(c => c.id)` equals
+      `['V1'..'V7']` completeness guard; `authorize()` short-circuit and stranger-vs-non-existent
+      parity tests
+- [x] 2.2 GREEN — `src/ws/rules/message-checks.ts` created: `MessageIntent`, `KitEntry`,
+      `ActorView`, `SessionContext`, `WsDenial`, the `CHECKS` array (V1 participant, V2 status,
+      V3 turn/open-window, V4 kit membership, V5 skill-type moment, V6 reaction availability, V7
+      slot free), `authorize()`
+- [x] 2.3 Verify — full unit and e2e suites green, lint clean, `tsc --noEmit` clean, build clean
+      with `dist/main.js` at dist root, logic-line diff measured at 233 (budget 400 — no
+      `size:exception` needed). PR 2 NOT opened, branch NOT pushed, per this batch's explicit
+      instruction
+
+## Files Changed (Slice 2)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `src/ws/rules/message-checks.ts` | Created | `SessionContext`, `WsDenial`, the `CHECKS` array (V1–V7), `authorize()` |
+| `src/ws/rules/message-checks.spec.ts` | Created | 34 tests: one block per validation plus the completeness guard and `authorize()` integration tests |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified | Slice 2 tasks marked `[x]` |
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 2.1/2.2 | `src/ws/rules/message-checks.spec.ts` | Unit | N/A (new file) | Written — failed on `Cannot find module './message-checks'` | Passed — 33/34 on first implementation, 1 grammar-only failure (`WRONG_SKILL_TYPE` message said "A action" instead of "An action") fixed, then 34/34 | 34 cases: 3+ per validation (pass, fail, and edge cases such as the null-skillCode decline exemption for V4/V5/V6, and the JOIN-does-not-apply cases for V3/V6) | Clean — `eslint --fix` reformatted the spec file (Prettier line-wrapping only), no logic change |
+
+### Test Summary
+- **Total tests written**: 34 (all in `message-checks.spec.ts`)
+- **Total tests passing**: 361/361 (full suite: 327 pre-existing + 34 new)
+- **Layers used**: Unit only (pure functions, no NestJS, no Prisma, no I/O)
+- **Pure functions created**: `authorize()`; the `CHECKS` array itself is data, not a function
+- **Completeness guard**: yes — `CHECKS.map((c) => c.id)` is asserted to equal
+  `['V1','V2','V3','V4','V5','V6','V7']` in that exact order, per design's own text ("so a
+  deleted or reordered check fails the suite rather than quietly weakening the surface"). This
+  is the literal test both `design.md` and `tasks.md` specify; no additional cross-check against
+  the `WsErrorCode` vocabulary was added (see Deviations)
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `pnpm test src/ws/rules` -> 1 suite, 34/34 passing; full run: `pnpm test` -> 37 suites, 361/361 passing |
+| Runtime harness command/scenario and exact result | N/A — pure functions, no gateway wiring in this slice (rooms/handlers are slice 3+). `pnpm build` run instead: clean, `dist/main.js` confirmed at dist root. Full `pnpm test:e2e` also re-run as a regression check: 7 suites, 35/35 passing, unchanged from slice 1 |
+| Rollback boundary | Revert the 3 slice-2 commits (`1e8d109`..`8952ec8`); deleting `src/ws/rules/message-checks.ts` and its spec removes the entire slice cleanly — nothing outside `src/ws/rules/` was touched |
+
+## Verification Detail
+
+- `pnpm test`: 37 suites, 361/361 tests passing (327 pre-existing + 34 new)
+- `pnpm test:e2e`: 7 suites, 35/35 tests passing, unchanged from slice 1 (this slice wires
+  nothing into the gateway)
+- `pnpm lint`: clean (`eslint --fix` reformatted the spec file's line-wrapping only, no logic
+  change; one real grammar bug in the implementation, "A action skill..." vs "An action
+  skill...", was caught by a RED test and fixed before commit)
+- `npx tsc --noEmit`: clean, no errors
+- `pnpm build`: clean; `dist/main.js` confirmed at the root of `dist/`
+- Logic-line diff: `git diff --numstat feat/ws-handshake-auth...feat/ws-message-checks --
+  'src/**/*.ts' ':!*.spec.ts' | awk '{s+=$1} END {print s}'` = **233** (budget 400, forecast
+  150–210 — about 11% over forecast, well within budget; see Deviations)
+
+## Deviations from Design
+
+None structural — the `CHECKS` array and `authorize()` match design's "The Seven Validations,
+Applied Uniformly" code sketch exactly (same `Check` shape, same loop, same `appliesTo`
+mechanism), and the Denial mapping table's code-per-check assignment is followed literally,
+including `NOT_A_PARTICIPANT`'s (mapped here to `NOT_FOUND`) byte-for-byte match with REST's
+`'Battle not found'` message.
+
+Three implementation-level judgment calls the design's sketch left open (its `run:` bodies were
+placeholder comments, not code):
+
+1. **`SessionContext` shape is new, not specified by design.** The design shows `Check.run`
+   taking a `SessionContext` but never defines its fields — `battle-session.service.ts`, the
+   module that will assemble it from the database, is a later slice. This slice defines
+   `SessionContext` as a flat, already-resolved read (status, `activeUserId`,
+   `reactionWindowOpen`, the actor's kit and `reactionAvailable`, `slotOccupied`) with no Prisma
+   or NestJS dependency, so the type is reusable by that later assembly code without this module
+   ever importing it.
+2. **`skillCode: null` (explicit reaction decline, per the Event Contract) exempts V4, V5, and
+   V6.** A decline carries no skill to check kit membership or type against, and design's own
+   text says a decline "preserves the reaction" rather than spending it, so gating a decline on
+   `reactionAvailable` would refuse a message that spends nothing. This is the most defensible
+   reading but is not spelled out in `realtime-battle-session/spec.md`'s V4–V6 scenarios, which
+   are written in terms of a declared (non-null) skill.
+3. **A reaction sent by the active player (not the defender) while a window is open is refused
+   as `NO_OPEN_WINDOW`, not a new code.** The denial mapping table gives `NO_OPEN_WINDOW` only
+   for "the double-reaction case," but there is no code in the vocabulary for "this window is
+   not addressed to you," and reusing `NO_OPEN_WINDOW` for both is consistent with the rest of
+   V3's information-hiding stance: from the sender's point of view, there is no window open for
+   them to answer either way.
+
+The one explicit completeness test the design and tasks both specify — `CHECKS.map(c => c.id)`
+equals `['V1'..'V7']` in order — was written exactly as specified. A broader completeness check
+(cross-referencing every declared `WsErrorCode` against which check can produce it) was
+considered but not added: it would require a runtime-enumerable companion to the `WsErrorCode`
+type (which is presently type-only and erased by `ts-jest`'s `isolatedModules`), a change to
+`battle-events.ts` that neither `design.md` nor `tasks.md` calls for in this slice, and risked
+scope creep beyond "declared once" for a property the existing test already gives structurally
+(a deleted or reordered check fails the array-identity assertion).
+
+## Issues Found
+
+None. One real bug surfaced by the RED→GREEN cycle itself and fixed before commit: the V5
+`WRONG_SKILL_TYPE` message used "A action skill..." instead of "An action skill..." — caught by
+the exact-match `toEqual` assertion (not `toMatchObject`) on that test, fixed with an
+article-selection branch, not a logic change.
+
+## Native Runtime Attempt Authority (Slice 2)
+
+`gentle-ai sdd-attempt settle` (`ph6-slice2-settle-1`) recorded outcome `passed` with `state:
+"complete"` — no budget exceeded this time. The parent orchestrator's `--max-changed-lines 900`
+ceiling comfortably covered this slice's actual footprint (596 raw lines across the two new
+files, both spec and implementation, no lockfile or migration churn to inflate the count). No
+maintainer reset was needed before this settle, unlike slices 0 and 1.
+
+## Workload / PR Boundary (Slice 2)
+
+- Mode: stacked PR slice (`stacked-to-main` chain strategy)
+- Current work unit: Slice 2 — "WebSocket message validations" (PR 2)
+- Boundary: starts at `c272561` (slice 1 tip), ends at `8952ec8`; 3 new commits total
+  (`1e8d109` RED, `d42ec73` GREEN, `8952ec8` tasks.md)
+- Estimated review budget impact: 233 logic lines against the 400 budget — Low risk, ~11% above
+  the 150–210 forecast but well within budget (see Deviations)
+- PR 2 not opened; branch not pushed, per instructions. Local commits only, on
+  `feat/ws-message-checks`
+
+## Key Learnings (Slice 2)
+
+1. `ts-jest` with `isolatedModules: true` erases `import type` statements at transpile time, so
+   a runtime completeness guard that needs to enumerate a type-only union (like `WsErrorCode`)
+   would need a parallel runtime `const` array — the union itself cannot be iterated at test
+   time without one.
+2. An exact-match assertion (`toEqual`) on a full denial object, not a partial one
+   (`toMatchObject({ code: ... })`), is what actually catches a copy-paste grammar bug in a
+   message string; several of this slice's tests would have stayed green with only a
+   `code`-only assertion.
+3. When a design's code sketch defines a function signature with a redundant-looking parameter
+   (`authorize(intent, ctx)` where `ctx` could in principle carry its own `intent` field), the
+   safest reading is to implement it exactly as written rather than "simplifying" it — the
+   `Check.run(ctx)` signature in the same sketch has no `intent` parameter of its own, so `ctx`
+   must carry it for a check to behave differently per intent, which is why both ended up
+   present.
+4. A validation module that must treat `skillCode: null` as a first-class, always-valid input
+   (an explicit decline) rather than an edge case forces every skill-dependent check (V4, V5,
+   V6) to short-circuit on it consistently — writing that short-circuit as the first line of
+   each check's `run()`, rather than filtering it out earlier, keeps each check's "real" logic
+   readable as the ACTION/REACTION path only.
