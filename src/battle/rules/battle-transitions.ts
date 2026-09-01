@@ -91,6 +91,46 @@ const isEntitled = (
  * lands on. Pure: no NestJS, no Prisma, no clock. The service turns a refusal
  * into the right status code.
  */
+/** Why the server closed a battle. Not a player move, so there is no `entitled` side. */
+export type ClosureReason = 'DEFEAT' | 'ABANDONMENT';
+
+/**
+ * The one SERVER-DECIDED edge of the machine. It lives in this file because
+ * there must be exactly one place that answers "what statuses can a battle
+ * reach". It is a SEPARATE constant because `entitled` answers "which player
+ * may make this move", and here nobody moves: the engine reported a defeat,
+ * or a deadline passed.
+ */
+export const BATTLE_CLOSURE = {
+  from: BattleStatus.IN_PROGRESS,
+  to: BattleStatus.FINISHED,
+} as const;
+
+export type ClosureOutcome =
+  | { allowed: true; to: BattleStatus; winnerId: string; reason: ClosureReason }
+  | { allowed: false; reason: 'WRONG_STATUS'; message: string };
+
+/**
+ * Closes an in-progress battle, server-side. There is no entitlement check —
+ * a defeat or an abandonment deadline is decided by the engine or the clock,
+ * never by a player asking. Refuses any battle not currently `IN_PROGRESS`.
+ */
+export function closeBattle(
+  battle: StoredBattle,
+  winnerId: string,
+  reason: ClosureReason,
+): ClosureOutcome {
+  if (battle.status !== BATTLE_CLOSURE.from) {
+    return {
+      allowed: false,
+      reason: 'WRONG_STATUS',
+      message: `A battle can only be closed while it is ${BATTLE_CLOSURE.from.toLowerCase()}, and this one is ${battle.status.toLowerCase()}`,
+    };
+  }
+
+  return { allowed: true, to: BATTLE_CLOSURE.to, winnerId, reason };
+}
+
 export function applyTransition(
   transition: BattleTransition,
   battle: StoredBattle,
