@@ -108,9 +108,13 @@ describe('TurnResolutionService', () => {
   );
   const findManyTurn = jest.fn();
   const findManyCombatant = jest.fn();
+  // Top-level (non-`tx`) reads: the idempotent re-emit path runs outside
+  // the (already-rolled-back) transaction.
+  const findUniqueOrThrowBattleTopLevel = jest.fn();
 
   const prisma = {
     $transaction,
+    battle: { findUniqueOrThrow: findUniqueOrThrowBattleTopLevel },
     battleTurn: { findMany: findManyTurn },
     battleCombatant: { findMany: findManyCombatant },
   } as unknown as PrismaService;
@@ -196,6 +200,10 @@ describe('TurnResolutionService', () => {
         combatantRow(ACTOR_ID, ACTOR_USER_ID),
         combatantRow(DEFENDER_ID, DEFENDER_USER_ID, { currentHp: 25 }),
       ]);
+      findUniqueOrThrowBattleTopLevel.mockResolvedValue({
+        winnerId: null,
+        endedAt: null,
+      });
 
       const result = await service.resolve(
         BATTLE_ID,
@@ -333,12 +341,19 @@ describe('TurnResolutionService', () => {
       findUniqueOrThrowSkill.mockResolvedValueOnce(powerStrike);
       createManyTurn.mockResolvedValue({ count: 2 });
 
-      await service.resolve(BATTLE_ID, ROUND, 'POWER_STRIKE', null);
+      const result = await service.resolve(
+        BATTLE_ID,
+        ROUND,
+        'POWER_STRIKE',
+        null,
+      );
 
       expect(updateBattle).toHaveBeenCalledWith({
         where: { id: BATTLE_ID },
         data: { currentRound: ROUND + 1, activeUserId: DEFENDER_USER_ID },
       });
+      expect(result.winnerId).toBeNull();
+      expect(result.endedAt).toBeNull();
     });
 
     it('closes the battle with DEFEAT when the defender is reduced to 0 HP', async () => {
@@ -372,6 +387,8 @@ describe('TurnResolutionService', () => {
           endedAt: expect.any(Date) as Date,
         },
       });
+      expect(result.winnerId).toBe(ACTOR_USER_ID);
+      expect(result.endedAt).toBeInstanceOf(Date);
     });
   });
 
@@ -417,6 +434,10 @@ describe('TurnResolutionService', () => {
         combatantRow(ACTOR_ID, ACTOR_USER_ID),
         combatantRow(DEFENDER_ID, DEFENDER_USER_ID, { currentHp: 25 }),
       ]);
+      findUniqueOrThrowBattleTopLevel.mockResolvedValue({
+        winnerId: null,
+        endedAt: null,
+      });
 
       const result = await service.resolve(
         BATTLE_ID,
@@ -431,6 +452,75 @@ describe('TurnResolutionService', () => {
       expect(findManyTurn).toHaveBeenCalledWith({
         where: { battleId: BATTLE_ID, round: ROUND },
         orderBy: { sequence: 'asc' },
+      });
+      // The re-emit reads the persisted winner/endedAt back from the DB —
+      // it never re-derives them, since `resolveTurn` never ran a second time.
+      expect(result.winnerId).toBeNull();
+      expect(result.endedAt).toBeNull();
+    });
+  });
+
+  describe('startRound', () => {
+    const actorWith = (
+      conditions: { type: ConditionType; roundsRemaining: number }[],
+    ) => ({
+      id: ACTOR_ID,
+      userId: ACTOR_USER_ID,
+      strength: 15,
+      magic: 10,
+      dexterity: 10,
+      constitution: 10,
+      armorClass: 5,
+      maxHp: 30,
+      currentHp: 30,
+      initiative: 10,
+      reactionAvailable: false,
+      conditions,
+    });
+
+    it('recharges the acting combatant reaction and ticks a surviving condition', async () => {
+      const actor = actorWith([
+        { type: ConditionType.POISONED, roundsRemaining: 1 },
+      ]);
+
+      const result = await service.startRound(ROUND + 1, actor);
+
+      expect(updateCombatant).toHaveBeenCalledWith({
+        where: { id: ACTOR_ID },
+        data: { reactionAvailable: true },
+      });
+      expect(result.actor.reactionAvailable).toBe(true);
+      // Decrement, not removal: `roundsRemaining: 1` still had a round left
+      // to bite before this tick started.
+      expect(result.actor.conditions).toEqual([
+        { type: ConditionType.POISONED, roundsRemaining: 0 },
+      ]);
+      expect(updateCondition).toHaveBeenCalledWith({
+        where: {
+          combatantId_type: {
+            combatantId: ACTOR_ID,
+            type: ConditionType.POISONED,
+          },
+        },
+        data: { roundsRemaining: 0 },
+      });
+    });
+
+    it('removes a condition already at 0 remaining rounds (remove-then-decrement, Decision C)', async () => {
+      const actor = actorWith([
+        { type: ConditionType.POISONED, roundsRemaining: 0 },
+      ]);
+
+      const result = await service.startRound(ROUND + 1, actor);
+
+      expect(result.actor.conditions).toEqual([]);
+      expect(deleteCondition).toHaveBeenCalledWith({
+        where: {
+          combatantId_type: {
+            combatantId: ACTOR_ID,
+            type: ConditionType.POISONED,
+          },
+        },
       });
     });
   });
