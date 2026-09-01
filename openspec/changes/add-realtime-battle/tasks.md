@@ -64,38 +64,41 @@ environment; every PR is opened by hand at
 
 ## Slice 0 — `feat/add-realtime-battle` (base: `main`)
 
-- [ ] 0.1 Commit SDD artifacts already on disk (`proposal.md`, `specs/*`, `design.md`,
+- [x] 0.1 Commit SDD artifacts already on disk (`proposal.md`, `specs/*`, `design.md`,
       `tasks.md`) to this branch. `docs(ws): add sdd proposal spec and design for realtime battle`
-- [ ] 0.2 Impl: `prisma/schema.prisma` — add the four nullable columns to `model Battle`
+- [x] 0.2 Impl: `prisma/schema.prisma` — add the four nullable columns to `model Battle`
       (D1 exact text, immediately after `endedAt`). **Use a context-rich exact `Edit`, never a
       short pattern** — a one-line pattern previously matched three models and triple-inserted a
       relation (Engram 256, trap #12). `feat(prisma): add transient window and abandonment
       columns to battle`
-- [ ] 0.3 Impl: `prisma/migrations/*/migration.sql` — four additive `ADD COLUMN` statements, no
+- [x] 0.3 Impl: `prisma/migrations/*/migration.sql` — four additive `ADD COLUMN` statements, no
       `NOT NULL`, no default, no backfill, no index, no constraint. Additive/nullable-only per
       the proposal's rollback plan. `feat(prisma): add battle window migration`
-- [ ] 0.4 RED: `src/battle/rules/battle-transitions.spec.ts` — extend: `closeBattle` on `DEFEAT`
+- [x] 0.4 RED: `src/battle/rules/battle-transitions.spec.ts` — extend: `closeBattle` on `DEFEAT`
       and `ABANDONMENT`; refusing a non-`IN_PROGRESS` battle; structural guard test asserting
       the union of `BATTLE_TRANSITIONS[*].to` + `BATTLE_CLOSURE.to` covers every `BattleStatus`
       except `PENDING`. `test(battle): cover battle closure and reachable status guard`
-- [ ] 0.5 Impl: `src/battle/rules/battle-transitions.ts` — `ClosureReason`, `BATTLE_CLOSURE`,
+- [x] 0.5 Impl: `src/battle/rules/battle-transitions.ts` — `ClosureReason`, `BATTLE_CLOSURE`,
       `closeBattle()` (D2). `feat(battle): add closure transition for finished battles`
-- [ ] 0.6 RED: `src/battle/rules/participant-clause.spec.ts` — challenger/opponent match a
+- [x] 0.6 RED: `src/battle/rules/participant-clause.spec.ts` — challenger/opponent match a
       battle; a stranger does not. `test(battle): cover participant clause predicate`
-- [ ] 0.7 Impl: `src/battle/rules/participant-clause.ts` — extract `participantClause` out of
+- [x] 0.7 Impl: `src/battle/rules/participant-clause.ts` — extract `participantClause` out of
       `battle.service.ts`; export it and the closure surface from `rules/index.ts`.
       `feat(battle): extract participant clause into rules`
-- [ ] 0.8 RED: `src/battle/battle.service.spec.ts` — `findForParticipant` returns `null` for a
+- [x] 0.8 RED: `src/battle/battle.service.spec.ts` — `findForParticipant` returns `null` for a
       stranger and for a non-existent battle; returns the full session row (battle + both
       combatants with `conditions` + `turns` ordered by `round, sequence` +
       `challenger`/`opponent` via `PLAYER_COLUMNS`) for a participant.
       `test(battle): cover findForParticipant scoping and shape`
-- [ ] 0.9 Impl: `src/battle/battle.service.ts` — add `findForParticipant(id, userId)`
+- [x] 0.9 Impl: `src/battle/battle.service.ts` — add `findForParticipant(id, userId)`
       (non-throwing); refactor `involvingCaller` to use the extracted `participantClause`.
       `feat(battle): add non-throwing participant-scoped battle read`
-- [ ] 0.10 Verify: `pnpm test`, `pnpm lint`, `pnpm build`; confirm `dist/main.js` at the root of
+- [x] 0.10 Verify: `pnpm test`, `pnpm lint`, `pnpm build`; confirm `dist/main.js` at the root of
       `dist/`. Measure `git diff --numstat main...feat/add-realtime-battle -- 'src/**/*.ts'
-      ':!*.spec.ts'`. Open PR 0 to `main`.
+      ':!*.spec.ts'`. Open PR 0 to `main`. **Done**: 322/322 tests, lint clean, `tsc --noEmit`
+      clean, `dist/main.js` confirmed at dist root, logic-line diff measured at 106 (well under
+      the 80–120 forecast and the 400 budget). PR 0 not opened — not pushed per instructions;
+      opening the PR is left to the orchestrator/user.
 
 ## Slice 1 — `feat/ws-handshake-auth` (base: slice 0)
 
