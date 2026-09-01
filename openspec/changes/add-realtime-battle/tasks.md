@@ -186,42 +186,42 @@ environment; every PR is opened by hand at
 
 ## Slice 4 — `feat/ws-turn-resolution` (base: slice 3)
 
-- [ ] 4.1 RED: `src/ws/turn-resolution.service.spec.ts` (part A) — the claim:
+- [x] 4.1 RED: `src/ws/turn-resolution.service.spec.ts` (part A) — the claim:
       `updateMany` returning `count === 1` wins, `count === 0` aborts with a sentinel; the
       engine is called with the declared reaction or `null`; `createMany` for `BattleTurn`
       never uses `skipDuplicates`. `test(ws): cover the atomic claim and engine invocation`
-- [ ] 4.2 Impl: `src/ws/turn-resolution.service.ts` (part A) — `resolve(battleId, round,
+- [x] 4.2 Impl: `src/ws/turn-resolution.service.ts` (part A) — `resolve(battleId, round,
       action, reaction)`: interactive `$transaction`, claim (`WHERE reactionDeadline IS NOT
       NULL`), load both combatants + `conditions` inside `tx`, `resolveTurn` (pure,
       `RANDOM_SOURCE` injected), `createMany` for the 1–2 `BattleTurn` rows — transaction steps
       1–4. `feat(ws): resolve declared actions through combat engine`
-- [ ] 4.3 RED: extend part B — `BattleCombatant.currentHp`/`reactionAvailable` updated from the
+- [x] 4.3 RED: extend part B — `BattleCombatant.currentHp`/`reactionAvailable` updated from the
       returned actor/defender; `reactionAvailable` set `false` **iff**
       `turns[1].skillCode !== null`; `ActiveCondition` upsert/update/delete mirrors
       `CONDITION_APPLIED`/`CONDITION_TICKED`/`CONDITION_EXPIRED`; `Battle.currentRound`/
       `activeUserId` advance, or `closeBattle('DEFEAT')` fields when `defeatedId` is present.
       `test(ws): cover combatant condition and closure persistence`
-- [ ] 4.4 Impl: `turn-resolution.service.ts` (part B) — transaction steps 5–7.
+- [x] 4.4 Impl: `turn-resolution.service.ts` (part B) — transaction steps 5–7.
       `feat(ws): persist resolved turns`
-- [ ] 4.5 **RED — concurrency (design's flagged unvalidated assumption)**:
+- [x] 4.5 **RED — concurrency (design's flagged unvalidated assumption)**:
       `turn-resolution.service.spec.ts` (part C), real database, `Promise.all` of two
       `resolve()` calls for the identical `(battleId, round)`. Asserts exactly one pair of
       `BattleTurn` rows persists and both callers observe the identical result — proving
       Prisma's `updateMany` re-evaluates its `WHERE` after the row lock releases under
       READ COMMITTED. `test(ws): cover exactly-once resolution under concurrent resolve calls`
-- [ ] 4.6 Impl: satisfy 4.5 with the existing claim from 4.2. **Named contingency**: if this
+- [x] 4.6 Impl: satisfy 4.5 with the existing claim from 4.2. **Named contingency**: if this
       test cannot be made to pass with `tx.battle.updateMany`, replace the claim with
       `SELECT ... FOR UPDATE` via `tx.$queryRaw` to force pessimistic locking before the write,
       and adjust 4.2/4.4 accordingly. This must not be discovered at apply time — this task
       exists to surface it here. `fix(ws): force row lock via queryRaw if updateMany claim
       races` (only if the contingency triggers)
-- [ ] 4.7 RED: extend part D — a `P2002` on `(battleId, round, sequence)` re-reads the
+- [x] 4.7 RED: extend part D — a `P2002` on `(battleId, round, sequence)` re-reads the
       persisted `BattleTurn` rows and combatant state and re-emits, never throws.
       `test(ws): cover idempotent no-op on unique constraint violation`
-- [ ] 4.8 Impl: `turn-resolution.service.ts` — catch `P2002`
+- [x] 4.8 Impl: `turn-resolution.service.ts` — catch `P2002`
       (`UNIQUE_VIOLATION`, beside the existing `FOREIGN_KEY_VIOLATION`), re-read, re-emit.
       `feat(ws): treat duplicate turn resolution as idempotent no-op`
-- [ ] 4.9 Verify: `pnpm test`, `pnpm lint`, `pnpm build`; confirm `dist/main.js` at the root.
+- [x] 4.9 Verify: `pnpm test`, `pnpm lint`, `pnpm build`; confirm `dist/main.js` at the root.
       Measure diff against slice 3 — this is the highest-risk slice. **If it exceeds 400, split
       at the part A/B boundary (4.1–4.4, "resolve") vs. part C/D (4.5–4.8,
       "concurrency+idempotency"), the second based on the first.** Open PR 4; retarget base to
