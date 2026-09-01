@@ -160,26 +160,29 @@ environment; every PR is opened by hand at
 
 ## Slice 3 — `feat/ws-battle-rooms` (base: slice 2)
 
-- [ ] 3.1 RED: `src/ws/battle-session.service.spec.ts` (partial) — participant-scoped load via
+- [x] 3.1 RED: `src/ws/battle-session.service.spec.ts` (partial) — participant-scoped load via
       `findForParticipant`; `authorizeMessage(intent, ctx)` delegates to `rules/message-checks`;
       `NOT_A_PARTICIPANT` maps to the same generic message REST uses, byte-identical for a
       non-existent battle and a real battle the sender doesn't own.
       `test(ws): cover session load and generic non-participant refusal`
-- [ ] 3.2 Impl: `src/ws/battle-session.service.ts` (partial) — `load()`,
+- [x] 3.2 Impl: `src/ws/battle-session.service.ts` (partial) — `load()`,
       `authorizeMessage()`; `battle:state` assembly limited to status/round/activeUserId/
       combatants for now (full assembly lands in slice 7).
       `feat(ws): add battle session load and message authorization entry`
-- [ ] 3.3 Impl: `src/ws/battle.gateway.ts` — `battle:join` handler: `authorize('JOIN')`
+- [x] 3.3 Impl: `src/ws/battle.gateway.ts` — `battle:join` handler: `authorize('JOIN')`
       (V1/V2 only apply), room admission (`battle:{battleId}`), emits `battle:state` or
       `battle:error`. `feat(ws): add battle rooms and join event`
-- [ ] 3.4 Impl: `src/ws/battle-events.ts` — extend with `battle:join`, `battle:state`,
+- [x] 3.4 Impl: `src/ws/battle-events.ts` — extend with `battle:join`, `battle:state`,
       `battle:error` payloads. Folded into 3.3's commit.
-- [ ] 3.5 E2E: extend `battle-realtime.e2e-spec.ts` — a participant joins and receives
+- [x] 3.5 E2E: extend `battle-realtime.e2e-spec.ts` — a participant joins and receives
       `battle:state`; a non-participant is refused with the generic message; joining a
       non-existent `battleId` gets the byte-identical refusal. `test(ws): cover room admission
       and generic refusal parity`
-- [ ] 3.6 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
+- [x] 3.6 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
       slice 2. Open PR 3; retarget base to `feat/ws-message-checks`.
+      249 logic lines measured, well within the 400 budget (above the 75–100 forecast, same
+      pattern as slices 1–2). `pnpm test`: 372/372. `pnpm test:e2e`: 37/37. `pnpm build`:
+      `dist/main.js` at dist root. PR 3 NOT opened, branch NOT pushed, per instructions.
 
 ## Slice 4 — `feat/ws-turn-resolution` (base: slice 3)
 
