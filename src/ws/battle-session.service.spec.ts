@@ -211,7 +211,7 @@ describe('BattleSessionService', () => {
       expect(result.row.activeUserId).toBe(RIVAL);
     });
 
-    it('refuses a participant whose battle is not yet ACCEPTED or IN_PROGRESS', async () => {
+    it('refuses a participant whose battle is still only a pending challenge', async () => {
       findForParticipant.mockResolvedValue(
         acceptedRow({ status: BattleStatus.PENDING }),
       );
@@ -223,7 +223,7 @@ describe('BattleSessionService', () => {
         denial: {
           code: 'WRONG_STATUS',
           message:
-            'The battle must be accepted or in_progress for that, and this one is pending',
+            'The battle must be accepted or in_progress or finished for that, and this one is pending',
         },
       });
       expect(update).not.toHaveBeenCalled();
