@@ -104,6 +104,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
       kind: 'ACTION',
       skillCode: null,
       attackRoll: null,
+      attackTotal: null,
       targetValue: null,
       hit: null,
       critical: false,
@@ -148,6 +149,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
   // difficulty read from the attacker (R13, Decision G), with the ward
   // bonus landing on the defender's roll only.
   let kept: number;
+  let attackTotal: number;
   let targetValue: number;
   let hit: boolean;
   let critical: boolean;
@@ -164,7 +166,8 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
       random,
     });
     kept = physical.kept;
-    targetValue = physical.targetValue;
+    attackTotal = physical.total;
+    targetValue = effectiveArmorClass;
     hit = physical.hit;
     critical = physical.critical;
     rawDamage = physical.rawDamage;
@@ -173,6 +176,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
       actorId: actor.id,
       rolls: physical.rolls,
       kept: physical.kept,
+      total: physical.total,
       targetValue: effectiveArmorClass,
       hit,
       critical,
@@ -186,6 +190,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
       random,
     });
     kept = magic.kept;
+    attackTotal = magic.total;
     targetValue = magic.difficulty;
     savePassed = magic.savePassed;
     hit = !savePassed;
@@ -196,6 +201,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
       defenderId: defender.id,
       rolls: magic.rolls,
       kept: magic.kept,
+      total: magic.total,
       difficulty: magic.difficulty,
       passed: savePassed,
     });
@@ -336,6 +342,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
     kind: 'ACTION',
     skillCode: action.skill.code,
     attackRoll: kept,
+    attackTotal,
     targetValue,
     hit,
     critical,
@@ -349,6 +356,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
     kind: 'REACTION',
     skillCode: resolved ? resolved.declared.skill.code : null,
     attackRoll: null,
+    attackTotal: null,
     targetValue: null,
     hit: null,
     critical: false,

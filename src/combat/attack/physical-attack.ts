@@ -16,7 +16,8 @@ export type PhysicalAttackInput = {
 export type PhysicalAttackResult = {
   readonly rolls: readonly number[];
   readonly kept: number;
-  readonly targetValue: number;
+  /** The attacker's `d20 + mod(resolvingAttribute)`; NOT the number to beat. */
+  readonly total: number;
   readonly hit: boolean;
   readonly critical: boolean;
   readonly rawDamage: number;
@@ -37,14 +38,14 @@ export const resolvePhysicalAttack = (
   const { attacker, skill, armorClass, bias, random } = input;
   const { rolls, kept } = rollD20With(random, bias);
   const attributeMod = modifier(attributeOf(attacker, skill.requiredAttribute));
-  const targetValue = kept + attributeMod;
+  const total = kept + attributeMod;
   const critical = kept === 20;
-  const hit = kept === 1 ? false : critical ? true : targetValue >= armorClass;
+  const hit = kept === 1 ? false : critical ? true : total >= armorClass;
 
   const rawDamage =
     hit && skill.damageDice
       ? rollDamage(random, skill.damageDice, attributeMod, critical)
       : 0;
 
-  return { rolls, kept, targetValue, hit, critical, rawDamage };
+  return { rolls, kept, total, hit, critical, rawDamage };
 };

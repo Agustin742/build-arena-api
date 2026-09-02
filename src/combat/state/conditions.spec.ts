@@ -65,7 +65,7 @@ describe('attackBiasFor', () => {
     // The higher discarded roll (16 + 2 = 18) would have hit; the kept
     // lower roll (6 + 2 = 8) misses, proving disadvantage was applied.
     expect(result.kept).toBe(6);
-    expect(result.targetValue).toBe(8);
+    expect(result.total).toBe(8);
     expect(result.hit).toBe(false);
   });
 
@@ -109,7 +109,7 @@ describe('attackBiasFor', () => {
     // 10 + mod(10)=0 = 10, unmodified armor class of 14 still applies: a
     // -2 belongs only to the saving throw difficulty a magic attack
     // imposes, and a physical attack imposes none.
-    expect(result.targetValue).toBe(10);
+    expect(result.total).toBe(10);
     expect(result.hit).toBe(false);
   });
 });
