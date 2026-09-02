@@ -32,7 +32,7 @@ const fireball: CombatSkill = {
   code: 'FIREBALL',
   type: 'ACTION',
   requiredAttribute: 'MAGIC',
-  damageDice: '2d6',
+  damageDice: '1d12',
   appliesCondition: null,
   conditionRounds: null,
 };
