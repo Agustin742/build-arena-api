@@ -101,8 +101,8 @@ F), which this capability orchestrates but does not redefine.
 
 The server MUST persist every `TurnRecord` returned by `resolveTurn` as a
 `BattleTurn` row scoped to that battle, preserving `round`, `sequence`,
-`actorId`, `kind`, `skillCode`, `attackRoll`, `targetValue`, `hit`,
-`critical`, and `damage` exactly as returned.
+`actorId`, `kind`, `skillCode`, `attackRoll`, `attackTotal`, `targetValue`,
+`hit`, `critical`, and `damage` exactly as returned.
 
 #### Scenario: Both emitted turn records are persisted
 

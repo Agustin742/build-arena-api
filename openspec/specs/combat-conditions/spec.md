@@ -49,9 +49,9 @@ neither effect has anything to apply to on those reactions.
 While STUNNED is active on the combatant whose turn it is, the engine MUST
 skip both the action and the reaction for that round and MUST return an
 explicit skipped-turn result rather than an empty one:
-`skipped: true`, `skillCode: null`, `attackRoll: null`, `targetValue: null`,
-`hit: null`, `critical: false`, `damage: 0`. The engine MUST also emit an
-event naming the cause.
+`skipped: true`, `skillCode: null`, `attackRoll: null`, `attackTotal: null`,
+`targetValue: null`, `hit: null`, `critical: false`, `damage: 0`. The engine
+MUST also emit an event naming the cause.
 
 #### Scenario: A stunned actor's action is recorded as skipped, not empty
 
