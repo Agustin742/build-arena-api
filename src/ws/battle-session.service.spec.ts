@@ -4,6 +4,10 @@ import type { BattleService } from '../battle/battle.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SessionContext } from './rules/message-checks';
 import { BattleSessionService } from './battle-session.service';
+import type {
+  TurnResolutionOutcome,
+  TurnResolutionService,
+} from './turn-resolution.service';
 
 const ME = '11111111-0000-4000-8000-000000000001';
 const RIVAL = '22222222-0000-4000-8000-000000000002';
@@ -72,14 +76,21 @@ describe('BattleSessionService', () => {
   const findForParticipant = jest.fn();
   const battleService = { findForParticipant } as unknown as BattleService;
   const update = jest.fn();
+  const findUnique = jest.fn();
   const buildSkillFindMany = jest.fn();
   const skillFindUniqueOrThrow = jest.fn();
+  const resolve = jest.fn();
+  const turnResolution = { resolve } as unknown as TurnResolutionService;
   const prisma = {
-    battle: { update },
+    battle: { update, findUnique },
     buildSkill: { findMany: buildSkillFindMany },
     skill: { findUniqueOrThrow: skillFindUniqueOrThrow },
   } as unknown as PrismaService;
-  const service = new BattleSessionService(battleService, prisma);
+  const service = new BattleSessionService(
+    battleService,
+    prisma,
+    turnResolution,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -369,6 +380,59 @@ describe('BattleSessionService', () => {
         where: { buildId: `build-${RIVAL}` },
         include: { skill: true },
       });
+    });
+  });
+
+  describe('settleOverdue', () => {
+    const outcome: TurnResolutionOutcome = {
+      battleId: BATTLE_ID,
+      round: 1,
+      turns: [],
+      actor: { reactionAvailable: true } as never,
+      defender: { reactionAvailable: true } as never,
+      events: [],
+      defeatedId: null,
+      winnerId: null,
+      endedAt: null,
+    };
+
+    it('does nothing when the battle has no pending action', async () => {
+      findUnique.mockResolvedValue({
+        currentRound: 1,
+        pendingActionSkillCode: null,
+        reactionDeadline: null,
+      });
+
+      await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
+      expect(resolve).not.toHaveBeenCalled();
+    });
+
+    it('does nothing while the deadline has not yet passed', async () => {
+      findUnique.mockResolvedValue({
+        currentRound: 1,
+        pendingActionSkillCode: 'POWER_STRIKE',
+        reactionDeadline: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
+      expect(resolve).not.toHaveBeenCalled();
+    });
+
+    it('resolves an overdue window with reaction: null, before any authorize check runs', async () => {
+      findUnique.mockResolvedValue({
+        currentRound: 1,
+        pendingActionSkillCode: 'POWER_STRIKE',
+        reactionDeadline: new Date(Date.now() - 1_000),
+      });
+      resolve.mockResolvedValue(outcome);
+
+      const result = await service.settleOverdue(BATTLE_ID);
+
+      // Expiry never spends the reaction — the defender's `reactionAvailable`
+      // is preserved by `TurnResolutionService.resolve`'s own rule (never
+      // re-derived here), not by any special case in `settleOverdue`.
+      expect(resolve).toHaveBeenCalledWith(BATTLE_ID, 1, 'POWER_STRIKE', null);
+      expect(result).toBe(outcome);
     });
   });
 

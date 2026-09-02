@@ -6,6 +6,7 @@ import { randomSourceProvider } from '../common/random-source.token';
 import { PrismaModule } from '../prisma/prisma.module';
 import { BattleGateway } from './battle.gateway';
 import { BattleSessionService } from './battle-session.service';
+import { ReactionTimerRegistry } from './reaction-timer.registry';
 import { TurnResolutionService } from './turn-resolution.service';
 
 /**
@@ -19,6 +20,7 @@ import { TurnResolutionService } from './turn-resolution.service';
     BattleGateway,
     BattleSessionService,
     TurnResolutionService,
+    ReactionTimerRegistry,
     randomSourceProvider,
   ],
 })

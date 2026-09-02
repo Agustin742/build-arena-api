@@ -25,6 +25,7 @@ import type {
 } from './battle-events';
 import { ClientEvent, ServerEvent } from './battle-events';
 import { BattleSessionService } from './battle-session.service';
+import { ReactionTimerRegistry } from './reaction-timer.registry';
 import type { TurnResolutionOutcome } from './turn-resolution.service';
 import { TurnResolutionService } from './turn-resolution.service';
 import { createWsAuthMiddleware } from './ws-auth.middleware';
@@ -111,7 +112,61 @@ export class BattleGateway
     private readonly jwt: JwtService,
     private readonly session: BattleSessionService,
     private readonly turnResolution: TurnResolutionService,
+    private readonly reactionTimer: ReactionTimerRegistry,
   ) {}
+
+  /**
+   * Runs at the top of every handler (design's sequence diagram 2, the
+   * LOAD-BEARING lazy path): if this battle's window is already overdue,
+   * resolves it and broadcasts the outcome before the triggering message is
+   * otherwise processed. The subsequent `admitJoin`/`admitAction`/
+   * `admitReaction` re-reads the battle fresh, so it naturally sees the
+   * window closed — no special-casing needed beyond this one call.
+   */
+  private async settleOverdue(battleId: string): Promise<void> {
+    const outcome = await this.session.settleOverdue(battleId);
+
+    if (!outcome) {
+      return;
+    }
+
+    this.reactionTimer.cancel(battleId);
+    await this.emitResolution(battleId, outcome);
+  }
+
+  /**
+   * Shared by the lazy path above and `handleReaction` below — the ONE
+   * place a resolved turn is broadcast, so a fresh resolve and a lazily
+   * settled one converge on byte-identical wire behavior.
+   */
+  private async emitResolution(
+    battleId: string,
+    outcome: TurnResolutionOutcome,
+  ): Promise<void> {
+    const room = battleRoom(battleId);
+
+    this.server
+      .to(room)
+      .emit(ServerEvent.TURN_RESOLVED, toTurnResolvedPayload(outcome));
+
+    if (outcome.defeatedId) {
+      this.server.to(room).emit(ServerEvent.ENDED, toEndedPayload(outcome));
+      return;
+    }
+
+    const nextRound = outcome.round + 1;
+    const started = await this.turnResolution.startRound(
+      nextRound,
+      outcome.defender,
+    );
+
+    this.server.to(room).emit(ServerEvent.ROUND_START, {
+      battleId,
+      round: nextRound,
+      activeUserId: outcome.defender.userId,
+      events: started.events,
+    });
+  }
 
   afterInit(server: Server): void {
     const authenticate = createWsAuthMiddleware(this.jwt);
@@ -144,6 +199,8 @@ export class BattleGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: BattleJoinPayload,
   ): Promise<void> {
+    await this.settleOverdue(payload.battleId);
+
     const { user } = socket.data as SocketData;
     const result = await this.session.admitJoin(payload.battleId, user.id);
 
@@ -170,6 +227,8 @@ export class BattleGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: BattleActionPayload,
   ): Promise<void> {
+    await this.settleOverdue(payload.battleId);
+
     const { user } = socket.data as SocketData;
     const result = await this.session.admitAction(
       payload.battleId,
@@ -192,6 +251,19 @@ export class BattleGateway
     socket
       .to(battleRoom(payload.battleId))
       .emit(ServerEvent.REACTION_WINDOW, window);
+
+    // The comfort layer: the SAME resolver the reaction handler and the
+    // lazy path call, never a separate resolution of its own.
+    this.reactionTimer.arm(payload.battleId, new Date(window.deadline), () => {
+      void this.turnResolution
+        .resolve(
+          payload.battleId,
+          result.row.currentRound,
+          payload.skillCode,
+          null,
+        )
+        .then((outcome) => this.emitResolution(payload.battleId, outcome));
+    });
   }
 
   /**
@@ -207,6 +279,11 @@ export class BattleGateway
     @ConnectedSocket() socket: Socket,
     @MessageBody() payload: BattleReactionPayload,
   ): Promise<void> {
+    // If the window already expired, this closes it in the database; V3's
+    // `reactionWindowOpen` then naturally refuses this same reaction below
+    // as `NO_OPEN_WINDOW`, with no special-casing needed here.
+    await this.settleOverdue(payload.battleId);
+
     const { user } = socket.data as SocketData;
     const result = await this.session.admitReaction(
       payload.battleId,
@@ -231,34 +308,13 @@ export class BattleGateway
       throw new Error(`Battle ${row.id} has no pending action to react to`);
     }
 
+    this.reactionTimer.cancel(payload.battleId);
     const outcome = await this.turnResolution.resolve(
       row.id,
       row.currentRound,
       actionSkillCode,
       payload.skillCode,
     );
-    const room = battleRoom(payload.battleId);
-
-    this.server
-      .to(room)
-      .emit(ServerEvent.TURN_RESOLVED, toTurnResolvedPayload(outcome));
-
-    if (outcome.defeatedId) {
-      this.server.to(room).emit(ServerEvent.ENDED, toEndedPayload(outcome));
-      return;
-    }
-
-    const nextRound = outcome.round + 1;
-    const started = await this.turnResolution.startRound(
-      nextRound,
-      outcome.defender,
-    );
-
-    this.server.to(room).emit(ServerEvent.ROUND_START, {
-      battleId: row.id,
-      round: nextRound,
-      activeUserId: outcome.defender.userId,
-      events: started.events,
-    });
+    await this.emitResolution(payload.battleId, outcome);
   }
 }
