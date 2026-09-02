@@ -19,6 +19,17 @@ type UpdateArgs = {
 
 const password = 'a-long-enough-password';
 
+/**
+ * AuthService hashes at bcrypt cost 12 on purpose, which costs roughly 300ms
+ * per operation on an idle machine. The tests below drive one or two of those
+ * operations each, so their real cost is measured in seconds, not milliseconds.
+ * Jest's implicit 5s default was never sized for that: under `pnpm test` the
+ * workers compete for cores and these tests have been measured at up to 4.5s,
+ * which made them fail on a busy machine and pass on a quiet one. Budget them
+ * explicitly instead of leaving them one scheduling hiccup away from red.
+ */
+const BCRYPT_BOUND_TIMEOUT_MS = 20_000;
+
 const dto: RegisterDto = {
   email: 'sylas@buildarena.dev',
   username: 'sylas',
@@ -78,49 +89,65 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    it('hashes the password before persisting it', async () => {
-      await service.register(dto);
+    it(
+      'hashes the password before persisting it',
+      async () => {
+        await service.register(dto);
 
-      const calls = create.mock.calls as [CreateArgs][];
-      const persisted = calls[0][0];
+        const calls = create.mock.calls as [CreateArgs][];
+        const persisted = calls[0][0];
 
-      expect(persisted.data).not.toHaveProperty('password');
-      expect(persisted.data.passwordHash).not.toBe(password);
-      await expect(
-        compare(password, persisted.data.passwordHash),
-      ).resolves.toBe(true);
-    });
+        expect(persisted.data).not.toHaveProperty('password');
+        expect(persisted.data.passwordHash).not.toBe(password);
+        await expect(
+          compare(password, persisted.data.passwordHash),
+        ).resolves.toBe(true);
+      },
+      BCRYPT_BOUND_TIMEOUT_MS,
+    );
 
-    it('never returns the password hash', async () => {
-      const result = await service.register(dto);
+    it(
+      'never returns the password hash',
+      async () => {
+        const result = await service.register(dto);
 
-      expect(result).toEqual({
-        id: storedUser.id,
-        email: storedUser.email,
-        username: storedUser.username,
-        rating: storedUser.rating,
-        createdAt: storedUser.createdAt,
-      });
-    });
+        expect(result).toEqual({
+          id: storedUser.id,
+          email: storedUser.email,
+          username: storedUser.username,
+          rating: storedUser.rating,
+          createdAt: storedUser.createdAt,
+        });
+      },
+      BCRYPT_BOUND_TIMEOUT_MS,
+    );
 
-    it('rejects an email or username that is already taken', async () => {
-      create.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-          code: 'P2002',
-          clientVersion: '7.10.0',
-        }),
-      );
+    it(
+      'rejects an email or username that is already taken',
+      async () => {
+        create.mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+            code: 'P2002',
+            clientVersion: '7.10.0',
+          }),
+        );
 
-      await expect(service.register(dto)).rejects.toBeInstanceOf(
-        ConflictException,
-      );
-    });
+        await expect(service.register(dto)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+      },
+      BCRYPT_BOUND_TIMEOUT_MS,
+    );
 
-    it('lets unexpected database errors through', async () => {
-      create.mockRejectedValue(new Error('connection lost'));
+    it(
+      'lets unexpected database errors through',
+      async () => {
+        create.mockRejectedValue(new Error('connection lost'));
 
-      await expect(service.register(dto)).rejects.toThrow('connection lost');
-    });
+        await expect(service.register(dto)).rejects.toThrow('connection lost');
+      },
+      BCRYPT_BOUND_TIMEOUT_MS,
+    );
   });
 
   describe('login', () => {
@@ -143,13 +170,17 @@ describe('AuthService', () => {
       ).toBe(true);
     });
 
-    it('rejects an unknown email', async () => {
-      findUnique.mockResolvedValue(null);
+    it(
+      'rejects an unknown email',
+      async () => {
+        findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.login({ email: 'ghost@buildarena.dev', password }),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
-    });
+        await expect(
+          service.login({ email: 'ghost@buildarena.dev', password }),
+        ).rejects.toBeInstanceOf(UnauthorizedException);
+      },
+      BCRYPT_BOUND_TIMEOUT_MS,
+    );
 
     it('rejects a wrong password', async () => {
       await expect(
