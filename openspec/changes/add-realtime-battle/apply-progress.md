@@ -3,7 +3,23 @@
 Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`). Slice 1 branch:
 `feat/ws-handshake-auth` (base: `feat/add-realtime-battle`, at `ddc9136`).
 
-## Status
+## Status (refreshed after Slice 7)
+
+Slices 0-4 MERGED INTO `main` (`582bc15`). Slice 5 was later split into two chained sub-slices
+— `feat/ws-session-context` (5a) and `feat/ws-action-wiring` (5b) — which, along with
+`feat/ws-reaction-timeout` (Slice 6), were completed, committed and pushed in sessions whose
+detail is **not reflected in this file** (the sections below stop at the original, since-resolved
+Slice 5 block). Those three branches are pushed and pending merge, stacked in order: 5a → 5b →
+6. Git history (`git log`) and the engram topic `sdd/add-realtime-battle/apply-progress` are the
+sources of truth for that gap — this file was not updated during those sessions.
+
+**Slice 7 — `feat/ws-battle-recovery` (base: Slice 6) — COMPLETE, all 9 tasks done, 4 commits,
+committed locally, NOT pushed.** This was the LAST slice of `add-realtime-battle`. Full detail
+appended at the end of this file, after Slice 5's original (since-superseded) block below.
+`sdd-verify`/archive not yet run.
+
+<details>
+<summary>Original Slice 5 status line (superseded — kept verbatim for history)</summary>
 
 10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete. 6/6
 Slice 3 tasks complete. 9/9 Slice 4 tasks complete. Slice 5: 4/5 tasks complete (5.1-5.4
@@ -17,7 +33,8 @@ forecast) — per the apply prompt's explicit instruction, work stopped before a
 this was measured. `delivery_strategy` is `ask-on-risk` and no `size:exception` was granted, so
 a maintainer/orchestrator decision is needed: raise the budget, split slice 5 into two chained
 sub-slices, or grant `size:exception`. All changes sit **uncommitted** on `feat/ws-action-wiring`
-(branched from slice 4's tip `31e20f0`) — working tree only, nothing staged, nothing pushed. See
+(branched from slice 4's tip `31e20f0`) — working tree only, nothing staged, nothing pushed.
+(This is exactly what happened next: the split into 5a/5b described above.) See
 "Slice 5 — Blocked on Review Budget" below for full detail.
 
 Slice 4's native attempt authority is `blocked(maintainer_decision)` pending a
@@ -25,7 +42,10 @@ Slice 4's native attempt authority is `blocked(maintainer_decision)` pending a
 not affect the correctness of the implementation. Slice 5's own native attempt authority is ALSO
 now `blocked(maintainer_decision)` for the same reason (see "Native Runtime Attempt Authority
 (Slice 5)" below) — both slices need the same maintainer reset before further attempts can
-acquire.
+acquire. (Historical note: this native-attempt block was resolved during the later 5a/5b split,
+not reflected in this file.)
+
+</details>
 
 ## Completed Tasks (Slice 0)
 
@@ -1044,3 +1064,157 @@ measured above — not a new or different problem.
    handlers' full supporting context (kit-aware authorization, reaction-window computation, and
    round-start persistence — all named in the design but not assigned a file or a line estimate)
    is accounted for; slice 4's own 170-240→400 miss (~2x) did not fully anticipate this.
+
+---
+
+# Slice 7 — `feat/ws-battle-recovery` (base: Slice 6) — COMPLETE, 4 commits, NOT pushed
+
+This was the LAST slice of `add-realtime-battle`. Base branch `feat/ws-reaction-timeout` (Slice
+6) was checked out fresh; `feat/ws-battle-recovery` created from it and never pushed, per the
+apply prompt's explicit boundary.
+
+## Completed Tasks (9/9)
+
+- [x] 7.1/7.2 — `BattleSessionService.toStatePayload` (design's `assembleState`; the existing
+      method name was kept) became `async` and now returns the FULL reconnect payload: `turns`
+      (mapped from `BattleSessionRow.turns`, already ordered round/sequence by
+      `findForParticipant`), `openWindow` (`WindowView | null` — reuses the existing
+      `applicableReactionSkillCodes`, never re-derived; `remainingMs = max(0, deadline - now)`),
+      `opponentLeft` (`LeftView | null`). `battle-events.ts` gained `LeftView`,
+      `BattleOpponentLeftPayload`, `SocketData.battleId?`, and `BattleStatePayload` extended with
+      the three new fields.
+- [x] 7.3/7.4 — `BattleGateway.handleJoin` records `socket.data.battleId` after a successful
+      join (Socket.IO has already left every room by the time `disconnect` fires, so this is the
+      only way `handleDisconnect` knows which battle to act on). `handleDisconnect` calls new
+      `BattleSessionService.recordDisconnect(battleId, userId)` — sets
+      `disconnectedUserId`/`disconnectDeadline = now+2min` only when the battle is `IN_PROGRESS`
+      and the caller is a participant; returns the deadline, or `null` (nothing to notify). The
+      gateway emits `battle:opponent_left` when non-null. New private
+      `BattleSessionService.clearDisconnectIfMine(row, actorId)` runs inside `admitJoin`: a
+      targeted update (`disconnectedUserId: null, disconnectDeadline: null` only) fires only when
+      `row.disconnectedUserId === actorId` — never touches `reactionDeadline`, satisfying "does
+      not alter any open reaction window's deadline".
+- [x] 7.5/7.6/7.7 — `settleOverdue()`'s return type became `SettleOutcome | null`
+      (`{kind:'TURN_RESOLVED', outcome} | {kind:'ABANDONED', winnerId, endedAt}`). New private
+      `closeIfAbandoned(battleId, battle)` runs FIRST inside `settleOverdue`, before the
+      reaction-window branch: if `disconnectDeadline` has passed, computes `survivorId`
+      (whichever of challenger/opponent is NOT `disconnectedUserId`) and calls
+      `closeBattle(battle, survivorId, 'ABANDONMENT')` from `src/battle/rules` — the D2 decision,
+      no hand-rolled status flip. On `allowed`, persists `status/winnerId/endedAt` and clears
+      `disconnectedUserId/disconnectDeadline` in one update, returns `{kind:'ABANDONED',...}`. On
+      `!allowed` (some other path already closed it) returns `null` gracefully — NOT a throw,
+      unlike the DEFEAT path's `throw` on its equivalent unreachable case, because this path is
+      genuinely reachable: `settleOverdue` runs unconditionally on EVERY message with no
+      precondition, so it can legitimately observe an already-`FINISHED` battle. The gateway's
+      private `settleOverdue` wrapper branches on `outcome.kind`: `'ABANDONED'` emits
+      `battle:ended` (reason `'ABANDONMENT'`) directly to the room; `'TURN_RESOLVED'` delegates to
+      the existing `emitResolution`.
+- [x] 7.8 — New e2e describe block in `test/battle-realtime.e2e-spec.ts` (own app instance, own
+      `RANDOM_SOURCE` override `[15,5,15,5,10,10,10,10]` — the abandonment closure consumes NO
+      dice). One scenario: opponent's real socket disconnects mid-window
+      (`opponentSocket.close()`) → challenger receives `battle:opponent_left` → a NEW socket
+      reconnects and re-joins BEFORE the 2-minute deadline → asserts `state.openWindow.deadline`
+      UNCHANGED, `remainingMs` recomputed smaller, `state.opponentLeft` cleared to `null` → the
+      reconnected socket finishes the SAME round (`battle:reaction` PARRY) → both clients
+      converge on `battle:turn_resolved`/`battle:round_start` (round 2, active=opponentId) →
+      the reconnected socket disconnects for real again (round 2's active player, never having
+      acted) → challenger gets `battle:opponent_left` again → `disconnectDeadline` backdated via
+      `prisma.battle.update` (bypassing the real 2-minute wait, same style as the existing
+      reaction-window-expiry test bypasses its 15s wait) → challenger emits `battle:join` (any
+      message would do) → asserts `battle:ended` with `winnerId=challengerId`,
+      `reason='ABANDONMENT'`, `endedAt` set, AND a direct DB read confirms `status=FINISHED`.
+- [x] 7.9 — Verify: `pnpm test` 431/431 (up from 414 pre-slice-7), `pnpm test:cov` 431/431
+      clean, `pnpm test:e2e` 43/43 (42 pre-existing +1 new), `pnpm lint` clean,
+      `npx tsc --noEmit` clean, `pnpm build` clean with `dist/main.js` at root. Not pushed; PR
+      not opened, per the apply prompt's explicit boundary (local commits only).
+
+## Files Changed
+
+| File | Action |
+|---|---|
+| `src/ws/battle-events.ts` | Modified — `LeftView`, `BattleOpponentLeftPayload`, `SocketData.battleId?`, `BattleStatePayload` extended |
+| `src/ws/battle-session.service.ts` | Modified — async `toStatePayload` full assembly, `openWindowView`, `toTurnView`/`toLeftView`, `recordDisconnect`, `clearDisconnectIfMine`, `SettleOutcome` type, `closeIfAbandoned` |
+| `src/ws/battle-session.service.spec.ts` | Modified — ~20 new/updated tests |
+| `src/ws/battle.gateway.ts` | Modified — `handleJoin` sets `socket.data.battleId` + awaits `toStatePayload`; `handleDisconnect` async + `recordDisconnect`; `settleOverdue` wrapper branches on `SettleOutcome.kind` |
+| `src/ws/battle.gateway.spec.ts` | Modified — new `handleDisconnect` describe, ABANDONED-branch test, battleId-remembered test |
+| `test/battle-realtime.e2e-spec.ts` | Modified — new describe block, 1 new e2e test (283 lines) |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified — 7.1-7.9 all `[x]` |
+
+No `ws.module.ts` change was needed this slice — no new injectable; `recordDisconnect`,
+`clearDisconnectIfMine` and `closeIfAbandoned` are all methods on the already-registered
+`BattleSessionService`.
+
+## Commits (4, local only, NOT pushed)
+
+1. `feat(ws): restore battle state on reconnect` — `toStatePayload` full assembly + disconnect
+   tracking/clearing (7.1-7.4 folded, per task instructions)
+2. `feat(ws): close battle on abandonment deadline` — `settleOverdue` abandonment branch
+   (7.5-7.7 folded)
+3. `test(ws): cover reconnect mid-window and abandonment closure end to end` — the e2e (7.8)
+4. `docs(ws): mark slice 7 tasks complete` — `tasks.md`
+
+Achieved via a deliberate temporary-revert-then-reapply technique on the 4 shared files (all
+abandonment work was interleaved with reconnect-state work in the same functions/files):
+implemented everything together first and verified green, then used the Edit tool to strip the
+abandonment-specific hunks back out, committed the reconnect-state slice, re-applied the
+abandonment hunks via Edit, verified green again, and committed. No `git add -p`/interactive
+staging was used (disallowed under this session's constraints) — pure Read/Edit reconstruction
+plus targeted `git add <files>`.
+
+## Budget
+
+Forecast 75-95 logic lines; measured (additions+deletions, `src/**/*.ts` excluding
+`*.spec.ts`, vs `feat/ws-reaction-timeout`): **319/400** — under budget, unlike every prior
+slice (slice 5 overshot ~8x). No `size:exception` needed.
+
+## Design decisions honored
+
+- **D2 (`closeBattle`)**: abandonment closure goes through
+  `closeBattle(battle, survivorId, 'ABANDONMENT')` from
+  `src/battle/rules/battle-transitions.ts` — the exact same function the DEFEAT path already
+  used. No hand-rolled `prisma.battle.update({status: FINISHED})` in the gateway or session for
+  this purpose.
+- **Lazy-only abandonment**: no background sweep exists or was added — a battle abandoned by
+  both participants simply has no survivor message to trigger `settleOverdue`'s abandonment
+  branch, and stays `IN_PROGRESS` forever until either acts. Explicitly the design's stated
+  accepted limitation, not a gap.
+- **Reconnect e2e reads from the DATABASE, not memory**: the recovered `battle:state` after
+  reconnect is assembled from a fresh `findForParticipant` read via `toStatePayload`; nothing
+  about the reaction window or the disconnect is held in the gateway's own memory across the
+  disconnect — the whole point of `reactionDeadline`/`disconnectDeadline` being persisted
+  columns, provable the same way the slice 6 expiry test proves it (backdating the column
+  rather than waiting out real time).
+
+## Native Runtime Attempt Authority (Slice 7)
+
+`sdd-attempt acquire` (`ph6-slice7-acq-child-1`, `--max-changed-lines 1400`) → `state: proceed`.
+`sdd-attempt settle` (`ph6-slice7-settle-1`, `--outcome passed`, `--harness-disposition reused`,
+with evidence-revision hash, diagnosis, cleanup-evidence and process-evidence) → `state:
+complete`.
+
+## Key Learnings (Slice 7)
+
+1. `settleOverdue()` had to check abandonment BEFORE the reaction-window branch, because it
+   runs unconditionally on every message and a battle can simultaneously have an overdue
+   reaction window AND a passed disconnect deadline — abandonment must win (the battle is over)
+   and must never resolve a turn on a battle it is about to close.
+2. `closeIfAbandoned` returns `null` gracefully (never throws) when `closeBattle` refuses a
+   non-`IN_PROGRESS` battle, unlike the DEFEAT path's `throw` on its equivalent case — because
+   `settleOverdue` genuinely can observe an already-`FINISHED` battle (it runs on every message
+   with no precondition), whereas the DEFEAT path's `closeBattle` call is reached only from
+   inside a transaction that already confirmed `IN_PROGRESS` moments earlier.
+3. `socket.data.battleId`, set in `handleJoin` after a successful join, is the only reliable way
+   `handleDisconnect` can know which room to act on — Socket.IO has already removed the
+   disconnecting socket from every room by the time the `disconnect` event fires, so
+   `socket.rooms` is useless there.
+4. A rejoining participant must clear ONLY their own `disconnectedUserId`/`disconnectDeadline`
+   via a targeted update — never the other participant's, and never touching
+   `reactionDeadline`/`pendingActionSkillCode` in the same statement, or a reconnect would
+   silently reset an unrelated open reaction window.
+5. The pre-existing e2e-suite crash
+   (`ReferenceError: You are trying to require a file after the Jest environment has been torn
+   down`, from a `pg`/SSL worker-teardown race under Node 24) reproduces on the UNMODIFIED
+   slice-6 baseline too — confirmed by `git stash` before/after — and does not affect the exit
+   code (0) or the reported pass count; it is a pre-existing environment flake, not a
+   regression, and was left untouched per the no-touch pattern already established for
+   `security.e2e-spec.ts`.
