@@ -11,9 +11,14 @@ const STRANGER = '99999999-0000-4000-8000-000000000009';
 const BATTLE_ID = '33333333-0000-4000-8000-000000000003';
 
 /** One combatant row shaped exactly like `findForParticipant`'s include. */
-const combatant = (userId: string, initiative: number) => ({
+const combatant = (
+  userId: string,
+  initiative: number,
+  overrides: Record<string, unknown> = {},
+) => ({
   id: `combatant-${userId}`,
   userId,
+  buildId: `build-${userId}`,
   strength: 15,
   magic: 13,
   dexterity: 12,
@@ -24,7 +29,15 @@ const combatant = (userId: string, initiative: number) => ({
   initiative,
   reactionAvailable: true,
   conditions: [],
+  ...overrides,
 });
+
+/** One `BuildSkill` join row shaped like `kitFor`'s `include: { skill: true }` read. */
+const kitEntry = (
+  code: string,
+  type: 'ACTION' | 'REACTION',
+  requiredAttribute: string = type === 'ACTION' ? 'STRENGTH' : 'DEXTERITY',
+) => ({ skill: { code, type, requiredAttribute } });
 
 const acceptedRow = (
   overrides: Record<string, unknown> = {},
@@ -59,7 +72,13 @@ describe('BattleSessionService', () => {
   const findForParticipant = jest.fn();
   const battleService = { findForParticipant } as unknown as BattleService;
   const update = jest.fn();
-  const prisma = { battle: { update } } as unknown as PrismaService;
+  const buildSkillFindMany = jest.fn();
+  const skillFindUniqueOrThrow = jest.fn();
+  const prisma = {
+    battle: { update },
+    buildSkill: { findMany: buildSkillFindMany },
+    skill: { findUniqueOrThrow: skillFindUniqueOrThrow },
+  } as unknown as PrismaService;
   const service = new BattleSessionService(battleService, prisma);
 
   beforeEach(() => {
@@ -193,6 +212,163 @@ describe('BattleSessionService', () => {
         },
       });
       expect(update).not.toHaveBeenCalled();
+    });
+  });
+
+  /** A fight in progress, ME active, ready for ACTION/REACTION admission. */
+  const inProgressRow = (
+    overrides: Record<string, unknown> = {},
+  ): BattleSessionRow =>
+    acceptedRow({
+      status: BattleStatus.IN_PROGRESS,
+      currentRound: 1,
+      activeUserId: ME,
+      pendingActionSkillCode: null,
+      reactionDeadline: null,
+      ...overrides,
+    });
+
+  describe('admitAction', () => {
+    it('refuses a player declaring an action out of turn', async () => {
+      findForParticipant.mockResolvedValue(
+        inProgressRow({ activeUserId: RIVAL }),
+      );
+      // The context is built in full before `authorize()` decides — same
+      // discipline as V1/V2 — so the sender's kit is still read even though
+      // V3 is the one that ultimately denies this message.
+      buildSkillFindMany.mockResolvedValue([]);
+
+      const result = await service.admitAction(BATTLE_ID, ME, 'POWER_STRIKE');
+
+      expect(result).toEqual({
+        ok: false,
+        denial: { code: 'NOT_YOUR_TURN', message: 'It is not your turn' },
+      });
+    });
+
+    it("admits the active player's valid ACTION-type skill from their kit", async () => {
+      findForParticipant.mockResolvedValue(inProgressRow());
+      buildSkillFindMany.mockResolvedValue([
+        kitEntry('POWER_STRIKE', 'ACTION'),
+      ]);
+
+      const result = await service.admitAction(BATTLE_ID, ME, 'POWER_STRIKE');
+
+      expect(result.ok).toBe(true);
+      expect(buildSkillFindMany).toHaveBeenCalledWith({
+        where: { buildId: `build-${ME}` },
+        include: { skill: true },
+      });
+    });
+
+    it("refuses a skill outside the active player's kit", async () => {
+      findForParticipant.mockResolvedValue(inProgressRow());
+      buildSkillFindMany.mockResolvedValue([]);
+
+      const result = await service.admitAction(BATTLE_ID, ME, 'POWER_STRIKE');
+
+      expect(result).toEqual({
+        ok: false,
+        denial: {
+          code: 'SKILL_NOT_IN_KIT',
+          message: 'That skill is not part of your kit for this battle',
+        },
+      });
+    });
+  });
+
+  describe('admitReaction', () => {
+    it('admits an explicit decline while the window is open', async () => {
+      findForParticipant.mockResolvedValue(
+        inProgressRow({ reactionDeadline: new Date(Date.now() + 60_000) }),
+      );
+      buildSkillFindMany.mockResolvedValue([]);
+
+      const result = await service.admitReaction(BATTLE_ID, RIVAL, null);
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('refuses a reaction when no window is open', async () => {
+      findForParticipant.mockResolvedValue(inProgressRow());
+      buildSkillFindMany.mockResolvedValue([kitEntry('PARRY', 'REACTION')]);
+
+      const result = await service.admitReaction(BATTLE_ID, RIVAL, 'PARRY');
+
+      expect(result).toEqual({
+        ok: false,
+        denial: {
+          code: 'NO_OPEN_WINDOW',
+          message: 'There is no reaction window open for you to answer',
+        },
+      });
+    });
+
+    it('refuses a reaction skill outside the defender kit', async () => {
+      findForParticipant.mockResolvedValue(
+        inProgressRow({ reactionDeadline: new Date(Date.now() + 60_000) }),
+      );
+      buildSkillFindMany.mockResolvedValue([]);
+
+      const result = await service.admitReaction(BATTLE_ID, RIVAL, 'PARRY');
+
+      expect(result).toEqual({
+        ok: false,
+        denial: {
+          code: 'SKILL_NOT_IN_KIT',
+          message: 'That skill is not part of your kit for this battle',
+        },
+      });
+    });
+  });
+
+  describe('declareAction', () => {
+    it('persists the pending action with a 15s deadline and returns the window payload', async () => {
+      const row = inProgressRow();
+      update.mockResolvedValue(undefined);
+      buildSkillFindMany.mockResolvedValue([]);
+      skillFindUniqueOrThrow.mockResolvedValue({
+        requiredAttribute: 'STRENGTH',
+      });
+      const now = Date.now();
+
+      const window = await service.declareAction(row, 'POWER_STRIKE');
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BATTLE_ID },
+        data: {
+          pendingActionSkillCode: 'POWER_STRIKE',
+          reactionDeadline: expect.any(Date) as Date,
+        },
+      });
+      expect(window.battleId).toBe(BATTLE_ID);
+      expect(window.round).toBe(1);
+      expect(window.actorUserId).toBe(ME);
+      expect(window.actionSkillCode).toBe('POWER_STRIKE');
+      expect(window.remainingMs).toBe(15_000);
+      expect(new Date(window.deadline).getTime()).toBeGreaterThanOrEqual(
+        now + 14_000,
+      );
+    });
+
+    it('computes applicableSkillCodes from the defender kit through REACTION_TABLE', async () => {
+      const row = inProgressRow();
+      update.mockResolvedValue(undefined);
+      skillFindUniqueOrThrow.mockResolvedValue({ requiredAttribute: 'MAGIC' });
+      buildSkillFindMany.mockResolvedValue([
+        kitEntry('PARRY', 'REACTION', 'STRENGTH'),
+        kitEntry('ARCANE_WARD', 'REACTION', 'MAGIC'),
+      ]);
+
+      const window = await service.declareAction(row, 'FIREBALL');
+
+      // PARRY only answers PHYSICAL; ARCANE_WARD answers MAGIC, matching a
+      // MAGIC-attribute action — only ARCANE_WARD survives the filter.
+      expect(window.applicableSkillCodes).toEqual(['ARCANE_WARD']);
+      expect(buildSkillFindMany).toHaveBeenCalledWith({
+        where: { buildId: `build-${RIVAL}` },
+        include: { skill: true },
+      });
     });
   });
 

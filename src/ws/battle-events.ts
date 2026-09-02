@@ -1,11 +1,11 @@
 import type { AuthenticatedUser } from '../auth/authenticated-user';
-import type { BattleStatus } from '../generated/prisma/enums';
+import type { CombatEvent } from '../combat';
+import type { BattleStatus, SkillType } from '../generated/prisma/enums';
 
 /**
  * Event names, error codes, and connection-scoped payload types shared by
- * the gateway and its middleware. Partial for this slice — later slices
- * extend it, never edit an earlier slice's export, per the `src/combat`
- * convention.
+ * the gateway and its middleware. Extended slice by slice — a later slice
+ * never edits an earlier slice's export, per the `src/combat` convention.
  */
 
 export const ClientEvent = {
@@ -56,13 +56,28 @@ export type BattleJoinPayload = {
   battleId: string;
 };
 
+/** Client → server: `battle:action`. */
+export type BattleActionPayload = {
+  battleId: string;
+  skillCode: string;
+};
+
 /**
- * One combatant as this slice's `battle:state` renders it. Named apart from
- * the design's `CombatantView` because that fuller type — the same fields,
- * shared with `battle:turn_resolved` — is declared once in slice 5; this
- * type covers only what a join needs today.
+ * Client → server: `battle:reaction`. `skillCode: null` is an explicit
+ * decline — it resolves the window immediately and preserves the reaction,
+ * exactly as expiry does (design's Event Contract).
  */
-export type BattleStateCombatant = {
+export type BattleReactionPayload = {
+  battleId: string;
+  skillCode: string | null;
+};
+
+/**
+ * One combatant as the design's Event Contract renders it — shared,
+ * byte-for-byte, by `battle:state` and `battle:turn_resolved`, declared
+ * once here per the `src/combat` convention.
+ */
+export type CombatantView = {
   userId: string;
   combatantId: string;
   strength: number;
@@ -77,6 +92,30 @@ export type BattleStateCombatant = {
   conditions: { type: string; roundsRemaining: number }[];
 };
 
+/** One persisted `BattleTurn` row, rendered for the wire. */
+export type TurnView = {
+  round: number;
+  sequence: number;
+  actorId: string;
+  kind: SkillType;
+  skillCode: string | null;
+  attackRoll: number | null;
+  targetValue: number | null;
+  hit: boolean | null;
+  critical: boolean;
+  damage: number;
+};
+
+/** The open-window shape shared by `battle:reaction_window` and (slice 7's) `battle:state`. */
+export type WindowView = {
+  round: number;
+  actorUserId: string;
+  actionSkillCode: string;
+  deadline: string;
+  remainingMs: number;
+  applicableSkillCodes: string[];
+};
+
 /**
  * Server → client: `battle:state`, limited for now to what admitting a join
  * needs. `turns`, `openWindow` and `opponentLeft` join this same event in
@@ -87,5 +126,37 @@ export type BattleStatePayload = {
   status: BattleStatus;
   currentRound: number;
   activeUserId: string | null;
-  combatants: BattleStateCombatant[];
+  combatants: CombatantView[];
+};
+
+/** Server → client: `battle:reaction_window`. */
+export type BattleReactionWindowPayload = { battleId: string } & WindowView;
+
+/** Server → client: `battle:turn_resolved`. */
+export type BattleTurnResolvedPayload = {
+  battleId: string;
+  round: number;
+  turns: TurnView[];
+  events: readonly CombatEvent[];
+  combatants: CombatantView[];
+  defeatedId: string | null;
+};
+
+/**
+ * Server → client: `battle:ended`. No rating delta field until Phase 7 —
+ * the field is absent, not null (design's Event Contract).
+ */
+export type BattleEndedPayload = {
+  battleId: string;
+  winnerId: string;
+  reason: 'DEFEAT' | 'ABANDONMENT';
+  endedAt: string;
+};
+
+/** Server → client: `battle:round_start`. */
+export type BattleRoundStartPayload = {
+  battleId: string;
+  round: number;
+  activeUserId: string;
+  events: readonly CombatEvent[];
 };

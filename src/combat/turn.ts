@@ -14,7 +14,7 @@ import type {
   ActionResolution,
   Combatant,
   CombatEvent,
-  DeclaredAction,
+  CombatSkill,
   DeclaredReaction,
   ReactionBehavior,
   TurnInput,
@@ -22,8 +22,17 @@ import type {
   TurnResolution,
 } from './types';
 
-const resolutionOf = (action: DeclaredAction): ActionResolution =>
-  action.skill.requiredAttribute === 'MAGIC' ? 'MAGIC' : 'PHYSICAL';
+/**
+ * PHYSICAL/MAGIC follows directly from the declared skill's own
+ * `requiredAttribute` (R14) — exported so a caller outside the engine (the
+ * gateway's `battle:reaction_window` payload, Phase 6) can compute which of
+ * the defender's kit answers the declared action without re-deriving this
+ * mapping a second time.
+ */
+export const actionResolutionOf = (
+  skill: Pick<CombatSkill, 'requiredAttribute'>,
+): ActionResolution =>
+  skill.requiredAttribute === 'MAGIC' ? 'MAGIC' : 'PHYSICAL';
 
 type ReactionIgnoredReason = 'NOT_APPLICABLE' | 'UNAVAILABLE' | 'STUNNED';
 
@@ -104,7 +113,7 @@ export const resolveTurn = (input: TurnInput): TurnResolution => {
     return { actor, defender, turns: [skippedRow], events, defeatedId: null };
   }
 
-  const resolution = resolutionOf(action);
+  const resolution = actionResolutionOf(action.skill);
   const { resolved, ignoredReason } = gateReaction(
     reaction,
     defender,

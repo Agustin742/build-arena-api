@@ -1,4 +1,4 @@
-import { resolveTurn } from './turn';
+import { actionResolutionOf, resolveTurn } from './turn';
 import { SequenceRandomSource } from './core/random-source';
 import type { RandomSource } from './core/random-source';
 import type { Combatant, CombatSkill, TurnInput } from './types';
@@ -789,5 +789,17 @@ describe('resolveTurn — determinism', () => {
     expect(result.turns[1].damage).toBe(6);
     expect(result.actor.currentHp).toBe(24);
     expect(result.defender.currentHp).toBe(22);
+  });
+});
+
+describe('actionResolutionOf', () => {
+  // Exported so `battle:reaction_window` (Phase 6) can compute which of the
+  // defender's kit answers the declared action without re-deriving R14.
+  it('maps a MAGIC-attribute skill to MAGIC', () => {
+    expect(actionResolutionOf(fireball)).toBe('MAGIC');
+  });
+
+  it('maps every other required attribute to PHYSICAL', () => {
+    expect(actionResolutionOf(powerStrike)).toBe('PHYSICAL');
   });
 });

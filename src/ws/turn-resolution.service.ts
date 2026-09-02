@@ -10,7 +10,7 @@ import type {
 } from '../combat';
 import { closeBattle } from '../battle/rules';
 import { RANDOM_SOURCE } from '../common/random-source.token';
-import { resolveTurn } from '../combat';
+import { resolveTurn, startRound as engineStartRound } from '../combat';
 import type {
   BattleCombatant,
   ActiveCondition,
@@ -31,6 +31,16 @@ export type TurnResolutionOutcome = {
   // to reconstruct — only the turns and combatant state are the contract.
   readonly events: readonly CombatEvent[];
   readonly defeatedId: string | null;
+  // Both null unless `defeatedId` is set — `closeBattle`'s own result on a
+  // fresh resolve, or the persisted columns on a re-emit; never re-derived.
+  readonly winnerId: string | null;
+  readonly endedAt: Date | null;
+};
+
+/** `startRound`'s result, persisted and handed back to the caller for `battle:round_start`. */
+export type RoundStartOutcome = {
+  readonly actor: Combatant;
+  readonly events: readonly CombatEvent[];
 };
 
 /**
@@ -186,7 +196,7 @@ export class TurnResolutionService {
           resolution.turns,
         );
         await this.persistConditions(tx, resolution.events);
-        await this.persistBattleAdvance(
+        const advance = await this.persistBattleAdvance(
           tx,
           battleId,
           round,
@@ -204,6 +214,8 @@ export class TurnResolutionService {
           defender: resolution.defender,
           events: resolution.events,
           defeatedId: resolution.defeatedId,
+          winnerId: advance.winnerId,
+          endedAt: advance.endedAt,
         };
       });
     } catch (error) {
@@ -302,13 +314,13 @@ export class TurnResolutionService {
     actor: Combatant,
     defender: Combatant,
     defeatedId: string | null,
-  ): Promise<void> {
+  ): Promise<{ winnerId: string | null; endedAt: Date | null }> {
     if (!defeatedId) {
       await tx.battle.update({
         where: { id: battleId },
         data: { currentRound: round + 1, activeUserId: defender.userId },
       });
-      return;
+      return { winnerId: null, endedAt: null };
     }
 
     const winner = defeatedId === actor.id ? defender : actor;
@@ -328,13 +340,37 @@ export class TurnResolutionService {
       throw new Error(`Cannot close battle ${battleId}: ${outcome.message}`);
     }
 
+    const endedAt = new Date();
+
     await tx.battle.update({
       where: { id: battleId },
-      data: {
-        status: outcome.to,
-        winnerId: outcome.winnerId,
-        endedAt: new Date(),
-      },
+      data: { status: outcome.to, winnerId: outcome.winnerId, endedAt },
+    });
+
+    return { winnerId: outcome.winnerId, endedAt };
+  }
+
+  /**
+   * The per-round tick (design's "Round advancement"): scoped to the
+   * incoming actor only (Decision F). A separate, short transaction from
+   * `resolve()`'s own — the sequence diagram calls this a distinct step,
+   * after `battle:turn_resolved` has already gone out. Reuses
+   * `persistConditions` as-is; nothing here re-derives condition logic.
+   */
+  async startRound(
+    round: number,
+    actor: Combatant,
+  ): Promise<RoundStartOutcome> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = engineStartRound({ round, actor });
+
+      await tx.battleCombatant.update({
+        where: { id: actor.id },
+        data: { reactionAvailable: true },
+      });
+      await this.persistConditions(tx, result.events);
+
+      return result;
     });
   }
 
@@ -356,6 +392,12 @@ export class TurnResolutionService {
     const combatants = await this.prisma.battleCombatant.findMany({
       where: { battleId },
       include: { conditions: true },
+    });
+    // The winner is already persisted by whichever caller won the claim —
+    // read it back rather than re-deriving it a second time.
+    const battle = await this.prisma.battle.findUniqueOrThrow({
+      where: { id: battleId },
+      select: { winnerId: true, endedAt: true },
     });
 
     const actorId = turns[0]?.actorId;
@@ -395,6 +437,8 @@ export class TurnResolutionService {
       defender,
       events: [],
       defeatedId: defeated?.id ?? null,
+      winnerId: battle.winnerId,
+      endedAt: battle.endedAt,
     };
   }
 }

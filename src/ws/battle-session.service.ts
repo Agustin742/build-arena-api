@@ -3,10 +3,16 @@ import { Injectable } from '@nestjs/common';
 import type { BattleSessionRow } from '../battle/battle.mapper';
 import { BattleService } from '../battle/battle.service';
 import { applyTransition } from '../battle/rules';
-import { BattleStatus } from '../generated/prisma/enums';
+import { actionResolutionOf, isApplicable, REACTION_TABLE } from '../combat';
+import { BattleStatus, SkillType } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
-import type { BattleStateCombatant, BattleStatePayload } from './battle-events';
 import type {
+  BattleReactionWindowPayload,
+  CombatantView,
+  BattleStatePayload,
+} from './battle-events';
+import type {
+  KitEntry,
   MessageIntent,
   SessionContext,
   WsDenial,
@@ -16,6 +22,11 @@ import { authorize } from './rules/message-checks';
 export type AdmitJoinResult =
   | { readonly ok: true; readonly row: BattleSessionRow }
   | { readonly ok: false; readonly denial: WsDenial };
+
+export type MessageAdmitResult = AdmitJoinResult;
+
+/** `battle:reaction_window`'s deadline: 15 seconds from declaration (Event Contract). */
+const REACTION_WINDOW_MS = 15_000;
 
 /** A `JOIN` context needs only what V1/V2 read — every other field is inert. */
 const joinContext = (
@@ -32,6 +43,54 @@ const joinContext = (
   actor: null,
   slotOccupied: false,
 });
+
+/**
+ * The `ACTION`/`REACTION` context V1-V7 need: the declared skill, the
+ * sender's kit and reaction availability, whether a window is open, and
+ * whether this round/sequence slot is already recorded. Built fresh from
+ * `row`, never carried across messages — same discipline as `joinContext`.
+ */
+const messageContext = async (
+  intent: 'ACTION' | 'REACTION',
+  actorId: string,
+  declaredSkillCode: string | null,
+  row: BattleSessionRow | null,
+  kitFor: (buildId: string | null) => Promise<readonly KitEntry[]>,
+): Promise<SessionContext> => {
+  if (!row) {
+    return {
+      intent,
+      actorId,
+      declaredSkillCode,
+      isParticipant: false,
+      status: BattleStatus.PENDING,
+      activeUserId: null,
+      reactionWindowOpen: false,
+      actor: null,
+      slotOccupied: false,
+    };
+  }
+
+  const actorCombatant = row.combatants.find((c) => c.userId === actorId);
+  const kit = actorCombatant ? await kitFor(actorCombatant.buildId) : [];
+  const sequence = intent === 'ACTION' ? 1 : 2;
+
+  return {
+    intent,
+    actorId,
+    declaredSkillCode,
+    isParticipant: true,
+    status: row.status,
+    activeUserId: row.activeUserId,
+    reactionWindowOpen: row.reactionDeadline !== null,
+    actor: actorCombatant
+      ? { reactionAvailable: actorCombatant.reactionAvailable, kit }
+      : null,
+    slotOccupied: row.turns.some(
+      (turn) => turn.round === row.currentRound && turn.sequence === sequence,
+    ),
+  };
+};
 
 /**
  * The higher `initiative` acts first; a tie breaks to the challenger,
@@ -126,6 +185,134 @@ export class BattleSessionService {
     };
   }
 
+  /** One combatant's kit, read fresh: `Build -> BuildSkill -> Skill`. */
+  private async kitFor(buildId: string | null): Promise<readonly KitEntry[]> {
+    if (!buildId) {
+      return [];
+    }
+
+    const entries = await this.prisma.buildSkill.findMany({
+      where: { buildId },
+      include: { skill: true },
+    });
+
+    return entries.map((entry) => ({
+      code: entry.skill.code,
+      type: entry.skill.type,
+    }));
+  }
+
+  /** Shared by `admitAction`/`admitReaction`: load, build context, authorize. */
+  private async admit(
+    intent: 'ACTION' | 'REACTION',
+    battleId: string,
+    actorId: string,
+    skillCode: string | null,
+  ): Promise<MessageAdmitResult> {
+    const row = await this.load(battleId, actorId);
+    const ctx = await messageContext(
+      intent,
+      actorId,
+      skillCode,
+      row,
+      (buildId) => this.kitFor(buildId),
+    );
+    const denial = this.authorizeMessage(intent, ctx);
+
+    if (denial) {
+      return { ok: false, denial };
+    }
+
+    // `authorizeMessage` already refused a `null` row (V1), so `row` is not
+    // null by the time we get here.
+    return { ok: true, row: row as BattleSessionRow };
+  }
+
+  /** `battle:action`: V1-V5 and V7 (V6 does not apply to a declared action). */
+  admitAction(
+    battleId: string,
+    actorId: string,
+    skillCode: string,
+  ): Promise<MessageAdmitResult> {
+    return this.admit('ACTION', battleId, actorId, skillCode);
+  }
+
+  /** `battle:reaction`: the full seven, including V6's `reactionAvailable`. */
+  admitReaction(
+    battleId: string,
+    actorId: string,
+    skillCode: string | null,
+  ): Promise<MessageAdmitResult> {
+    return this.admit('REACTION', battleId, actorId, skillCode);
+  }
+
+  /**
+   * Persists the declared action and opens the reaction window (design's
+   * sequence diagram 1, `G->>DB: UPDATE Battle SET pendingActionSkillCode,
+   * reactionDeadline = now + 15s`). `applicableSkillCodes` is informational
+   * only — `battle:reaction` re-validates through `authorize()` regardless
+   * of what the client was shown.
+   */
+  async declareAction(
+    row: BattleSessionRow,
+    skillCode: string,
+  ): Promise<BattleReactionWindowPayload> {
+    const actorUserId = row.activeUserId;
+
+    if (actorUserId === null) {
+      // Unreachable: V2/V3 already guarantee an IN_PROGRESS battle with an
+      // active player whenever a `battle:action` reaches this point.
+      throw new Error(`Battle ${row.id} has no active player`);
+    }
+
+    const deadline = new Date(Date.now() + REACTION_WINDOW_MS);
+
+    await this.prisma.battle.update({
+      where: { id: row.id },
+      data: { pendingActionSkillCode: skillCode, reactionDeadline: deadline },
+    });
+
+    const defender = row.combatants.find((c) => c.userId !== actorUserId);
+    const applicableSkillCodes = defender
+      ? await this.applicableReactionSkillCodes(skillCode, defender.buildId)
+      : [];
+
+    return {
+      battleId: row.id,
+      round: row.currentRound,
+      actorUserId,
+      actionSkillCode: skillCode,
+      deadline: deadline.toISOString(),
+      remainingMs: REACTION_WINDOW_MS,
+      applicableSkillCodes,
+    };
+  }
+
+  /**
+   * The defender's `REACTION`-type kit, filtered to what actually answers
+   * the declared action — `REACTION_TABLE` and `isApplicable` are the
+   * engine's own, reused as-is (design's Event Contract).
+   */
+  private async applicableReactionSkillCodes(
+    actionSkillCode: string,
+    defenderBuildId: string | null,
+  ): Promise<string[]> {
+    const [actionSkill, kit] = await Promise.all([
+      this.prisma.skill.findUniqueOrThrow({ where: { code: actionSkillCode } }),
+      this.kitFor(defenderBuildId),
+    ]);
+
+    const resolution = actionResolutionOf(actionSkill);
+
+    return kit
+      .filter((entry) => entry.type === SkillType.REACTION)
+      .filter((entry) => {
+        const behavior = REACTION_TABLE[entry.code];
+        return behavior !== undefined && isApplicable(behavior, resolution);
+      })
+      .map((entry) => entry.code);
+  }
+
   /**
    * Today's `battle:state`: status, round, active player, and combatants.
    * `turns`, `openWindow` and `opponentLeft` join this in slice 7.
@@ -143,7 +330,7 @@ export class BattleSessionService {
 
 const toCombatantView = (
   combatant: BattleSessionRow['combatants'][number],
-): BattleStateCombatant => ({
+): CombatantView => ({
   userId: combatant.userId,
   combatantId: combatant.id,
   strength: combatant.strength,
