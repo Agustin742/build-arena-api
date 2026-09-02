@@ -70,13 +70,12 @@ const joinContext = (
  * whether this round/sequence slot is already recorded. Built fresh from
  * `row`, never carried across messages — same discipline as `joinContext`.
  */
-const messageContext = async (
+const messageContext = (
   intent: 'ACTION' | 'REACTION',
   actorId: string,
   declaredSkillCode: string | null,
   row: BattleSessionRow | null,
-  kitFor: (buildId: string | null) => Promise<readonly KitEntry[]>,
-): Promise<SessionContext> => {
+): SessionContext => {
   if (!row) {
     return {
       intent,
@@ -92,7 +91,7 @@ const messageContext = async (
   }
 
   const actorCombatant = row.combatants.find((c) => c.userId === actorId);
-  const kit = actorCombatant ? await kitFor(actorCombatant.buildId) : [];
+  const kit = actorCombatant ? kitOf(actorCombatant) : [];
   const sequence = intent === 'ACTION' ? 1 : 2;
 
   return {
@@ -111,6 +110,19 @@ const messageContext = async (
     ),
   };
 };
+
+/**
+ * One combatant's kit, read off the row the freeze wrote — never off the
+ * build it was copied from. That is the whole difference: `PATCH /builds`
+ * replaces a kit wholesale, and a fight already under way must not see it.
+ */
+const kitOf = (
+  combatant: BattleSessionRow['combatants'][number],
+): readonly KitEntry[] =>
+  combatant.skills.map((entry) => ({
+    code: entry.skill.code,
+    type: entry.skill.type,
+  }));
 
 /**
  * The higher `initiative` acts first; a tie breaks to the challenger,
@@ -392,23 +404,6 @@ export class BattleSessionService {
     return { ...row, disconnectedUserId: null, disconnectDeadline: null };
   }
 
-  /** One combatant's kit, read fresh: `Build -> BuildSkill -> Skill`. */
-  private async kitFor(buildId: string | null): Promise<readonly KitEntry[]> {
-    if (!buildId) {
-      return [];
-    }
-
-    const entries = await this.prisma.buildSkill.findMany({
-      where: { buildId },
-      include: { skill: true },
-    });
-
-    return entries.map((entry) => ({
-      code: entry.skill.code,
-      type: entry.skill.type,
-    }));
-  }
-
   /** Shared by `admitAction`/`admitReaction`: load, build context, authorize. */
   private async admit(
     intent: 'ACTION' | 'REACTION',
@@ -417,13 +412,7 @@ export class BattleSessionService {
     skillCode: string | null,
   ): Promise<MessageAdmitResult> {
     const row = await this.load(battleId, actorId);
-    const ctx = await messageContext(
-      intent,
-      actorId,
-      skillCode,
-      row,
-      (buildId) => this.kitFor(buildId),
-    );
+    const ctx = messageContext(intent, actorId, skillCode, row);
     const denial = this.authorizeMessage(intent, ctx);
 
     if (denial) {
@@ -481,7 +470,7 @@ export class BattleSessionService {
 
     const defender = row.combatants.find((c) => c.userId !== actorUserId);
     const applicableSkillCodes = defender
-      ? await this.applicableReactionSkillCodes(skillCode, defender.buildId)
+      ? await this.applicableReactionSkillCodes(skillCode, kitOf(defender))
       : [];
 
     return {
@@ -502,12 +491,11 @@ export class BattleSessionService {
    */
   private async applicableReactionSkillCodes(
     actionSkillCode: string,
-    defenderBuildId: string | null,
+    kit: readonly KitEntry[],
   ): Promise<string[]> {
-    const [actionSkill, kit] = await Promise.all([
-      this.prisma.skill.findUniqueOrThrow({ where: { code: actionSkillCode } }),
-      this.kitFor(defenderBuildId),
-    ]);
+    const actionSkill = await this.prisma.skill.findUniqueOrThrow({
+      where: { code: actionSkillCode },
+    });
 
     const resolution = actionResolutionOf(actionSkill);
 
@@ -562,7 +550,7 @@ export class BattleSessionService {
     const applicableSkillCodes = defender
       ? await this.applicableReactionSkillCodes(
           row.pendingActionSkillCode,
-          defender.buildId,
+          kitOf(defender),
         )
       : [];
 
@@ -595,6 +583,7 @@ const toCombatantView = (
     type: condition.type,
     roundsRemaining: condition.roundsRemaining,
   })),
+  skillCodes: combatant.skills.map((entry) => entry.skill.code),
 });
 
 const toTurnView = (turn: BattleSessionRow['turns'][number]): TurnView => ({
