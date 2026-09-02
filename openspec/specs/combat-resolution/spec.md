@@ -75,31 +75,31 @@ outcome (R12).
 #### Scenario: Failed save takes full damage
 
 - GIVEN FIREBALL, attacker magic mod +2 with no active conditions (saveDifficulty 10), defender constitution mod +1
-- WHEN defender rollD20() returns 8 (9 total, fails) and rollDice('2d6') returns 9
+- WHEN defender rollD20() returns 8 (9 total, fails) and rollDice('1d12') returns 9
 - THEN damage is 9
 
 #### Scenario: Successful save halves damage, rounding down
 
 - GIVEN the same FIREBALL setup
-- WHEN defender rollD20() returns 15 (16 total, succeeds) and rollDice('2d6') returns 9
+- WHEN defender rollD20() returns 15 (16 total, succeeds) and rollDice('1d12') returns 9
 - THEN damage is floor(9 / 2) = 4
 
 #### Scenario: Natural 20 save is an ordinary success, not a special negation
 
 - GIVEN the same FIREBALL setup
-- WHEN defender rollD20() returns 20 (succeeds) and rollDice('2d6') returns 9
+- WHEN defender rollD20() returns 20 (succeeds) and rollDice('1d12') returns 9
 - THEN damage is 4, identical to any other successful save, with no additional effect
 
 #### Scenario: Natural 1 save is an ordinary failure, not a special critical failure
 
 - GIVEN the same FIREBALL setup
-- WHEN defender rollD20() returns 1 (fails) and rollDice('2d6') returns 9
+- WHEN defender rollD20() returns 1 (fails) and rollDice('1d12') returns 9
 - THEN damage is 9, identical to any other failed save, with no additional effect
 
 #### Scenario: A POISONED attacker's lowered difficulty turns a failed save into a successful one
 
 - GIVEN FIREBALL, attacker magic mod +2 and POISONED with roundsRemaining 2, so saveDifficulty is 8 + 2 - 2 = 8, defender constitution mod +1
-- WHEN defender rollD20() returns 8 (9 total) and rollDice('2d6') returns 9
+- WHEN defender rollD20() returns 8 (9 total) and rollDice('1d12') returns 9
 - THEN the save succeeds against 8 and damage is floor(9 / 2) = 4, where the identical roll against the unpoisoned difficulty of 10 would have failed and dealt 9
 
 #### Scenario: The POISONED penalty lowers the difficulty imposed, never a save the bearer makes

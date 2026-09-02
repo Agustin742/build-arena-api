@@ -24,7 +24,7 @@ export class CreateBuildDto {
   name!: string;
 
   @ApiProperty({
-    example: 15,
+    example: 14,
     description: 'Between 8 and 15. The spread must fit the attribute budget',
   })
   @IsInt()
