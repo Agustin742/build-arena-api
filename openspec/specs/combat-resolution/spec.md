@@ -152,5 +152,5 @@ attack roll and its damage roll.
 #### Scenario: PRECISE_SHOT resolves with dexterity, not strength
 
 - GIVEN attacker dexterity mod +1, strength mod +4, defender armorClass 12
-- WHEN rollD20() returns 12 (13 total) and rollDice('1d6') returns 4
+- WHEN rollD20() returns 12 (13 total) and rollDice('1d10') returns 4
 - THEN the attack hits with target value 13 (using +1, not +4) and damage is 5
