@@ -31,7 +31,7 @@ const preciseShot: CombatSkill = {
   code: 'PRECISE_SHOT',
   type: 'ACTION',
   requiredAttribute: 'DEXTERITY',
-  damageDice: '1d6',
+  damageDice: '1d10',
   appliesCondition: null,
   conditionRounds: null,
 };
