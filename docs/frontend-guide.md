@@ -131,11 +131,14 @@ Lo que el servidor guarda. No todos estos campos salen por el cable: los hashes 
 
 ### `BattleCombatant` — la foto congelada
 
-Al aceptar el desafío, los atributos de las dos builds se **copian** acá. Editar la build
-después ya no cambia esa pelea.
+Al aceptar el desafío, los atributos de las dos builds **y su kit** se copian acá. Editar
+o borrar la build después ya no cambia esa pelea.
 
 `userId`, `buildId?`, `strength`, `magic`, `dexterity`, `constitution`, `armorClass`,
-`maxHp`, `currentHp`, `initiative`, `reactionAvailable`, `conditions[]`.
+`maxHp`, `currentHp`, `initiative`, `reactionAvailable`, `conditions[]`, `skills[]`.
+
+El kit congelado apunta directo al catálogo, no a la build, así que sobrevive a borrarla.
+Viaja al cliente como `skillCodes` dentro de `CombatantView` (§7.3).
 
 ### `BattleTurn` — el historial
 
@@ -465,13 +468,19 @@ completo desde la base.
     "strength": 14, "magic": 13, "dexterity": 12, "constitution": 10,
     "armorClass": 11, "maxHp": 35, "currentHp": 22,
     "initiative": 14, "reactionAvailable": true,
-    "conditions": [{ "type": "POISONED", "roundsRemaining": 2 }]
+    "conditions": [{ "type": "POISONED", "roundsRemaining": 2 }],
+    "skillCodes": ["POWER_STRIKE", "FIREBALL", "PARRY", "DODGE"]
   }],
   "turns": [ /* TurnView, en orden */ ],
   "openWindow": null,
   "opponentLeft": null
 }
 ```
+
+`skillCodes` es **el kit congelado de esa pelea**, en el orden en que se congeló. De ahí
+armás el menú de acciones: cruzá esos códigos con el catálogo de `GET /skills` y filtrá
+por `type: 'ACTION'`. **No llames a `/builds` para esto** — la build de hoy puede no ser
+la que está peleando.
 
 `openWindow` y `opponentLeft` **no son adorno**: si reconectás con una ventana abierta,
 `openWindow` trae el `remainingMs` que queda y tenés que volver a mostrar el prompt.
@@ -500,7 +509,7 @@ reacción no se gasta** — lo mismo que si declinás con `null`.
   "battleId": "…", "round": 3,
   "turns": [ /* dos filas: acción y reacción */ ],
   "events": [ /* la narración, ver §7.4 */ ],
-  "combatants": [ /* estado después */ ],
+  "combatants": [ /* mismo CombatantView que battle:state, skillCodes incluido */ ],
   "defeatedId": null
 }
 ```
@@ -678,6 +687,10 @@ Cuando `battle:state` o `battle:round_start` dicen que `activeUserId` sos vos:
 >
 ```
 
+Las dos opciones salen de tu `skillCodes` en `battle:state`, filtradas por `type:
+'ACTION'` contra el catálogo cacheado. **No de `GET /builds`**: ese lee la build de ahora,
+y la que está peleando es la que se congeló al aceptar.
+
 Cuando llega `battle:reaction_window`, **cronómetro en pantalla** con `remainingMs`:
 
 ```
@@ -705,49 +718,13 @@ el servidor resuelve solo: no mandes nada al expirar.
    lo tenés.
 5. **El historial ya está en `turns`.** Al reconectar podés re-renderizar todo el chat de
    la batalla desde ahí.
+6. **Editar la build no toca la pelea.** El jugador puede editarla en medio de una
+   batalla: los atributos y el kit de esa pelea siguen siendo los del momento en que se
+   aceptó. Mostrá siempre `skillCodes`, nunca la build actual.
 
 ---
 
-## 9. Dos huecos que vas a chocar
-
-Documentados porque son reales, no porque se vayan a arreglar solos.
-
-> Los dos están anotados como **Fase 8** en
-> [`implementation-plan.md`](./design/implementation-plan.md), que es deuda posterior a la
-> entrega. **Cuando esa fase entre, esta sección se borra**: el kit va a viajar dentro de
-> `CombatantView` y va a estar congelado de verdad. Hasta entonces, esto es lo que hay.
-
-### 9.1 El kit no viaja al cliente durante la batalla
-
-`CombatantView` trae atributos, vida y condiciones, pero **no la lista de habilidades**.
-No hay ningún evento ni endpoint que te diga qué acciones podés declarar en esta pelea.
-
-Para las **reacciones** no importa: `applicableSkillCodes` te las da. Para las
-**acciones** sí: tenés que llamar a `GET /builds/:id` con la build que usaste y filtrar
-por `type: 'ACTION'`.
-
-Guardá el `buildId` con el que aceptaste o desafiaste. **El servidor no te lo devuelve** en
-`BattleDto`.
-
-### 9.2 El kit no está congelado, solo los atributos
-
-Al aceptar, `BattleCombatant` copia los atributos y los valores derivados. **La lista de
-habilidades no se copia**: se lee en vivo de la build en cada mensaje.
-
-Consecuencias:
-
-- Si el jugador edita su build en medio de una pelea, **cambia el kit con el que está
-  peleando**. Los atributos siguen congelados, así que no puede inflarse las estadísticas,
-  pero sí puede cambiar sus habilidades.
-- `GET /builds/:id` es correcto para leer el kit en combate **solo mientras nadie edite la
-  build**. Es lo único que hay, pero conviene saber que la garantía no es total.
-
-**Recomendación para el front:** desalentá editar una build con batallas en curso, o
-avisá al jugador. Y si la API alguna vez expone el kit congelado, migrá a eso.
-
----
-
-## 10. Resumen de una partida completa
+## 9. Resumen de una partida completa
 
 ```
 POST /auth/login                          -> tokens
