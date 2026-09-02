@@ -78,8 +78,8 @@ function makeRandom(seed) {
 /** The seeded catalog, copied by value: prisma/seed.ts is the source. */
 const SKILLS = {
   POWER_STRIKE: { code: 'POWER_STRIKE', type: 'ACTION', requiredAttribute: 'STRENGTH', damageDice: '1d8', appliesCondition: null, conditionRounds: null, cost: 4 },
-  RECKLESS_BLOW: { code: 'RECKLESS_BLOW', type: 'ACTION', requiredAttribute: 'STRENGTH', damageDice: '2d6', appliesCondition: null, conditionRounds: null, cost: 6 },
-  PRECISE_SHOT: { code: 'PRECISE_SHOT', type: 'ACTION', requiredAttribute: 'DEXTERITY', damageDice: '1d6', appliesCondition: null, conditionRounds: null, cost: 5 },
+  RECKLESS_BLOW: { code: 'RECKLESS_BLOW', type: 'ACTION', requiredAttribute: 'STRENGTH', damageDice: '1d10', appliesCondition: null, conditionRounds: null, cost: 5 },
+  PRECISE_SHOT: { code: 'PRECISE_SHOT', type: 'ACTION', requiredAttribute: 'DEXTERITY', damageDice: '1d10', appliesCondition: null, conditionRounds: null, cost: 5 },
   FIREBALL: { code: 'FIREBALL', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '2d6', appliesCondition: null, conditionRounds: null, cost: 5 },
   VENOM_BOLT: { code: 'VENOM_BOLT', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '1d4', appliesCondition: 'POISONED', conditionRounds: 3, cost: 4 },
   MIND_SPIKE: { code: 'MIND_SPIKE', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '1d10', appliesCondition: 'STUNNED', conditionRounds: 1, cost: 7 },
@@ -90,6 +90,41 @@ const SKILLS = {
   COUNTER: { code: 'COUNTER', type: 'REACTION', requiredAttribute: 'STRENGTH', damageDice: '1d6', appliesCondition: null, conditionRounds: null, cost: 6 },
   RIPOSTE: { code: 'RIPOSTE', type: 'REACTION', requiredAttribute: 'DEXTERITY', damageDice: '1d8', appliesCondition: 'WEAKENED', conditionRounds: 2, cost: 7 },
 };
+
+/**
+ * A candidate catalog, applied over the seeded one so two number sets can be
+ * compared over the identical stream of luck:
+ *
+ *   node scripts/balance-sim.mjs --patch '{"PRECISE_SHOT":{"damageDice":"1d8"}}'
+ *
+ * Only fields that exist on a seeded skill may be patched — a typo silently
+ * creating a new field would show up as "the numbers did not move" rather
+ * than as an error.
+ */
+function applyPatch() {
+  const index = process.argv.indexOf('--patch');
+  if (index === -1) {
+    return null;
+  }
+
+  const patch = JSON.parse(process.argv[index + 1]);
+
+  for (const [code, fields] of Object.entries(patch)) {
+    if (!SKILLS[code]) {
+      throw new Error(`--patch names a skill that is not in the catalog: ${code}`);
+    }
+    for (const [field, value] of Object.entries(fields)) {
+      if (!(field in SKILLS[code])) {
+        throw new Error(`--patch names a field ${code} does not have: ${field}`);
+      }
+      SKILLS[code][field] = value;
+    }
+  }
+
+  return patch;
+}
+
+const PATCH = applyPatch();
 
 /** src/build/rules/attribute-cost.ts, indexed from the base value of 8. */
 const CUMULATIVE_COST = [0, 1, 2, 3, 4, 5, 7, 9];
@@ -169,11 +204,38 @@ function assertLegal(archetype) {
   if (actions.length !== 2) problems.push(`${actions.length} actions`);
   if (reactions.length !== 2) problems.push(`${reactions.length} reactions`);
 
-  if (problems.length > 0) {
-    throw new Error(`${archetype.name} is not a legal build: ${problems.join(', ')}`);
+  return { spent, kit, problems };
+}
+
+/**
+ * A candidate that raises a cost can push a build past the kit budget. That
+ * is a real consequence and must be reported as one — but note what it does
+ * NOT do: cost never enters a duel, only legality. Repricing a skill cannot
+ * close a mechanical gap between two reactions, it can only stop a build
+ * from carrying both.
+ */
+function reportLegality() {
+  const illegal = ARCHETYPES.map((archetype) => ({
+    archetype,
+    ...assertLegal(archetype),
+  })).filter((entry) => entry.problems.length > 0);
+
+  if (illegal.length === 0) {
+    return;
   }
 
-  return { spent, kit };
+  console.log('\nThis catalog makes some of these builds illegal:\n');
+  for (const entry of illegal) {
+    console.log(
+      `  ${entry.archetype.name.padEnd(8)} ${entry.problems.join(', ')}`,
+    );
+  }
+  console.log(
+    '\nThey are simulated anyway, so the combat numbers stay comparable.',
+  );
+  console.log(
+    'A player could not field them as they stand — that is the finding.\n',
+  );
 }
 
 // ------------------------------------------------------------------ the duel
@@ -323,7 +385,12 @@ const pct = (value, total) => ((value / total) * 100).toFixed(1).padStart(5);
 
 function main() {
   console.log(
-    `\nBalance simulation — ${DUELS} duels per pairing, seed ${SEED}\n`,
+    `\nBalance simulation — ${DUELS} duels per pairing, seed ${SEED}`,
+  );
+  console.log(
+    PATCH
+      ? `Candidate catalog: ${JSON.stringify(PATCH)}\n`
+      : 'Seeded catalog, unmodified\n',
   );
 
   console.log('Builds, all legal under the same budgets:\n');
@@ -335,6 +402,8 @@ function main() {
         `AC ${combatant.armorClass}  HP ${combatant.maxHp}  [${archetype.kit.join(' ')}]`,
     );
   }
+
+  reportLegality();
 
   const wins = new Map();
   const stalemates = new Map();
