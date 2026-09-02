@@ -8,6 +8,8 @@ import type {
   RandomSource,
   TurnRecord,
 } from '../combat';
+import type { FrozenKitEntry } from '../battle/battle.mapper';
+import { FROZEN_KIT } from '../battle/battle.mapper';
 import { closeBattle } from '../battle/rules';
 import { RANDOM_SOURCE } from '../common/random-source.token';
 import { resolveTurn, startRound as engineStartRound } from '../combat';
@@ -29,6 +31,10 @@ export type TurnResolutionOutcome = {
   readonly turns: readonly TurnRecord[];
   readonly actor: Combatant;
   readonly defender: Combatant;
+  // The two frozen kits, by combatant id. The engine's `Combatant` has no
+  // kit and has no use for one, but the wire's `CombatantView` carries it,
+  // so it travels beside them rather than inside them.
+  readonly kits: Readonly<Record<string, readonly string[]>>;
   // Empty on a re-emit: events are never persisted, so a re-read has none
   // to reconstruct — only the turns and combatant state are the contract.
   readonly events: readonly CombatEvent[];
@@ -61,7 +67,16 @@ class ClaimLostError extends Error {}
 
 type CombatantWithConditions = BattleCombatant & {
   conditions: ActiveCondition[];
+  skills: FrozenKitEntry[];
 };
+
+/** The frozen kits of a battle's combatants, keyed by combatant id. */
+const kitsOf = (
+  rows: readonly CombatantWithConditions[],
+): Record<string, readonly string[]> =>
+  Object.fromEntries(
+    rows.map((row) => [row.id, row.skills.map((entry) => entry.skill.code)]),
+  );
 
 const toCombatant = (row: CombatantWithConditions): Combatant => ({
   id: row.id,
@@ -139,7 +154,9 @@ export class TurnResolutionService {
             challengerId: true,
             ranked: true,
             opponentId: true,
-            combatants: { include: { conditions: true } },
+            combatants: {
+              include: { conditions: true, skills: FROZEN_KIT },
+            },
           },
         });
 
@@ -223,6 +240,7 @@ export class TurnResolutionService {
           turns: resolution.turns,
           actor: resolution.actor,
           defender: resolution.defender,
+          kits: kitsOf(battle.combatants),
           events: resolution.events,
           defeatedId: resolution.defeatedId,
           winnerId: advance.winnerId,
@@ -425,7 +443,7 @@ export class TurnResolutionService {
 
     const combatants = await this.prisma.battleCombatant.findMany({
       where: { battleId },
-      include: { conditions: true },
+      include: { conditions: true, skills: FROZEN_KIT },
     });
     // The winner is already persisted by whichever caller won the claim —
     // read it back rather than re-deriving it a second time.
@@ -470,6 +488,7 @@ export class TurnResolutionService {
       })),
       actor,
       defender,
+      kits: kitsOf(combatants),
       events: [],
       rating: null,
       defeatedId: defeated?.id ?? null,

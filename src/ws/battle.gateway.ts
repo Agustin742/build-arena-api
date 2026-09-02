@@ -34,8 +34,15 @@ import { createWsAuthMiddleware } from './ws-auth.middleware';
 /** The one room a battle's two participants ever share. */
 const battleRoom = (battleId: string): string => `battle:${battleId}`;
 
-/** `Combatant` (engine shape) rendered as the wire's `CombatantView`. */
-const toCombatantView = (combatant: Combatant): CombatantView => ({
+/**
+ * `Combatant` (engine shape) rendered as the wire's `CombatantView`. The
+ * kit comes in separately because the engine has no notion of one — the
+ * resolver carries it out of the transaction that read the rows.
+ */
+const toCombatantView = (
+  combatant: Combatant,
+  skillCodes: readonly string[],
+): CombatantView => ({
   userId: combatant.userId,
   combatantId: combatant.id,
   strength: combatant.strength,
@@ -51,6 +58,7 @@ const toCombatantView = (combatant: Combatant): CombatantView => ({
     type: condition.type,
     roundsRemaining: condition.roundsRemaining,
   })),
+  skillCodes: [...skillCodes],
 });
 
 const toTurnView = (turn: TurnRecord): TurnView => ({
@@ -74,7 +82,9 @@ const toTurnResolvedPayload = (
   round: outcome.round,
   turns: outcome.turns.map(toTurnView),
   events: outcome.events,
-  combatants: [outcome.actor, outcome.defender].map(toCombatantView),
+  combatants: [outcome.actor, outcome.defender].map((combatant) =>
+    toCombatantView(combatant, outcome.kits[combatant.id] ?? []),
+  ),
   defeatedId: outcome.defeatedId,
 });
 
