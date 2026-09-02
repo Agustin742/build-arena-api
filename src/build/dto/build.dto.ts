@@ -9,7 +9,7 @@ export class BuildDto {
   @ApiProperty({ example: 'Hybrid duelist' })
   name!: string;
 
-  @ApiProperty({ example: 15 })
+  @ApiProperty({ example: 14 })
   strength!: number;
 
   @ApiProperty({ example: 13 })

@@ -92,7 +92,7 @@ El modificador se deriva del valor:
 modifier(value) = floor((value - 10) / 2)
 ```
 
-Consecuencia intencional: 14 y 15 dan el mismo `+2`, así que un valor impar es un punto desperdiciado salvo que algo lo levante.
+Consecuencia intencional: 14 y 15 dan el mismo `+2`, así que un valor impar es un punto desperdiciado. En el catálogo actual **nada lo levanta**: ninguna habilidad pide más de 14 y ningún valor derivado lee el atributo crudo, así que llegar a 15 cuesta dos puntos y no devuelve nada. Se deja alcanzable a propósito —la curva de costos existe para que esa elección se pueda razonar— pero ningún ejemplo del código lo recomienda.
 
 **El presupuesto de atributos es de 20 puntos**, gastados desde una base de 8 en los
 cuatro. Ese número no es arbitrario: es el que hace que las tres formas de repartir
@@ -118,15 +118,20 @@ Cada build elige **2 habilidades de acción y 2 de reacción**, pagándolas de u
 **Por qué requisitos de atributo:** atan las dos mitades de la build. Subir `magic` no solo aumenta daño, **desbloquea habilidades**. Los arquetipos aparecen solos, sin necesidad de definir clases.
 
 **El presupuesto de kit es de 18 puntos.** El kit más barato del catálogo cuesta 15
-(`POWER_STRIKE` + `VENOM_BOLT` + `BRACE` + `PARRY`) y el más caro 26, así que 18 deja
+(`POWER_STRIKE` + `VENOM_BOLT` + `BRACE` + `PARRY`) y el más caro 25, así que 18 deja
 tres puntos de margen sobre el piso.
 
 **Por qué 18 y no 20:** existe una build degenerada. Fuerza sola desbloquea las cuatro
 habilidades —`RECKLESS_BLOW` y `COUNTER` piden Fuerza 14, `POWER_STRIKE` y `PARRY` piden
 Fuerza 12— así que un único atributo en 14, siete puntos, alcanza para el kit entero y
 deja trece libres. Eso contradice el párrafo anterior: los requisitos dejarían de atar
-las dos mitades de la build. Ese kit cuesta exactamente 20 puntos, y con 18 queda fuera
-de alcance.
+las dos mitades de la build. Ese kit cuesta 19 puntos, y con 18 queda fuera de alcance
+**por un solo punto**.
+
+Ese margen de un punto no es deliberado: es lo que quedó después del rebalanceo, cuando
+`RECKLESS_BLOW` bajó de 6 a 5. Conviene saberlo, porque bajar `PARRY` a 3 dejaría ese kit
+en exactamente 18 y volvería legal la build que este presupuesto existe para prohibir.
+Antes de tocar el costo de cualquier reacción de Fuerza, recalcular esta suma.
 
 No hace falta el mismo cuidado con los otros atributos: Magia tiene una sola reacción,
 Destreza una sola acción y Constitución ninguna acción, así que el catálogo ya impide
