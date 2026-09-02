@@ -139,7 +139,7 @@ Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la
 | `PATCH` | `/battles/:id/accept` | Acepta el desafío y congela a los dos combatientes | Disponible |
 | `PATCH` | `/battles/:id/reject` | Rechaza el desafío recibido | Disponible |
 | `PATCH` | `/battles/:id/cancel` | Cancela el desafío enviado | Disponible |
-| `GET` | `/leaderboard` | Ranking global | Pendiente |
+| `GET` | `/leaderboard` | Ranking global por rating, de mayor a menor | Disponible |
 
 El combate en sí no es REST: se juega sobre WebSocket, y el REST llega hasta que la batalla queda aceptada. Ver [Tiempo real](#tiempo-real).
 
