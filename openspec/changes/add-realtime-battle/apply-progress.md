@@ -5,18 +5,21 @@ Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`)
 
 ## Status (refreshed after Slice 7)
 
-Slices 0-4 MERGED INTO `main` (`582bc15`). Slice 5 was later split into two chained sub-slices
-— `feat/ws-session-context` (5a) and `feat/ws-action-wiring` (5b) — which, along with
-`feat/ws-reaction-timeout` (Slice 6), were completed, committed and pushed in sessions whose
-detail is **not reflected in this file** (the sections below stop at the original, since-resolved
-Slice 5 block). Those three branches are pushed and pending merge, stacked in order: 5a → 5b →
-6. Git history (`git log`) and the engram topic `sdd/add-realtime-battle/apply-progress` are the
-sources of truth for that gap — this file was not updated during those sessions.
+**All eight slices are complete.** Slices 0-4, 5a, 5b and 6 are merged into `main` (`d50ef45`,
+PRs #34-#42). Slice 7 (`feat/ws-battle-recovery`) is pushed and pending its PR.
 
-**Slice 7 — `feat/ws-battle-recovery` (base: Slice 6) — COMPLETE, all 9 tasks done, 4 commits,
-committed locally, NOT pushed.** This was the LAST slice of `add-realtime-battle`. Full detail
-appended at the end of this file, after Slice 5's original (since-superseded) block below.
-`sdd-verify`/archive not yet run.
+Slice 5 measured 519 logic lines against the 400 budget and stopped before committing, per
+`ask-on-risk`. It was split at the service/transport boundary into `feat/ws-session-context`
+(5a, 344 lines) and `feat/ws-action-wiring` (5b, 175). The sections for 5a, 5b and 6 were
+reconstructed after the fact — see the note in each.
+
+Measured logic lines, none over the 400 review budget: 0=106, 1=165, 2=233, 3=249, 4=400,
+5a=344, 5b=175, 6=179, 7=302.
+
+Final verification on `feat/ws-battle-recovery`: `pnpm test` 432/432 in 41 suites,
+`pnpm test:e2e` 43/43 in 8 suites, `pnpm lint` clean, `npx tsc --noEmit` clean, `pnpm build`
+clean with `dist/main.js` at the root of `dist/`. `sdd-verify` returned `pass_with_warnings`:
+36/36 requirements, 52/52 scenarios, 0 blockers, 0 critical findings.
 
 <details>
 <summary>Original Slice 5 status line (superseded — kept verbatim for history)</summary>
@@ -822,7 +825,7 @@ implementation — all tests pass, including the real-database concurrency test.
 
 ---
 
-# Slice 5 — `feat/ws-action-wiring` (base: slice 4, `31e20f0`) — BLOCKED, not committed
+# Slice 5 — `feat/ws-action-wiring` (base: slice 4, `31e20f0`) — SUPERSEDED by 5a and 5b below
 
 Branch `feat/ws-action-wiring` created from slice 4's tip (`31e20f0`). All work is complete and
 verified but sits **uncommitted in the working tree only** — see "Why blocked" below.
@@ -1067,7 +1070,174 @@ measured above — not a new or different problem.
 
 ---
 
-# Slice 7 — `feat/ws-battle-recovery` (base: Slice 6) — COMPLETE, 4 commits, NOT pushed
+---
+
+# Slice 5a — `feat/ws-session-context` (base: slice 4, `31e20f0`) — MERGED
+
+> Reconstructed after the fact. The slice-5 implementation was already written and verified when
+> the 519-line measurement stopped it; splitting it was a staging exercise, not a rewrite, so this
+> section records what landed rather than a live TDD log. RED-before-GREEN ordering for the code
+> itself is visible in the slice-5 section above and in `git log`.
+
+## What landed
+
+The half of slice 5 that is service, not transport: everything the handlers need in order to
+exist, with no handler in it.
+
+| File | Action | What |
+|---|---|---|
+| `src/ws/battle-session.service.ts` | Modified | ACTION/REACTION `SessionContext` builders, the first `Build -> BuildSkill -> Skill` kit lookup on the socket side, `admitAction`, `admitReaction`, `declareAction`, `applicableReactionSkillCodes` |
+| `src/ws/battle-events.ts` | Modified | Payload types for the action, reaction and window events; `BattleStateCombatant` renamed to the design's canonical `CombatantView` |
+| `src/ws/turn-resolution.service.ts` | Modified | `TurnResolutionOutcome` gained `winnerId`/`endedAt`; `startRound()` added, reusing `persistConditions` verbatim so the round tick adds no second way to write conditions |
+| `src/ws/ws.module.ts` | Modified | Registers `TurnResolutionService` |
+| `src/combat/turn.ts` | Modified | The private `resolutionOf` exported as `actionResolutionOf`, so PHYSICAL/MAGIC keeps one definition instead of being re-derived in the WebSocket layer |
+
+## Why the forecast missed by roughly 8x
+
+Slice 5 was forecast at 45-65 logic lines. It measured 519. The forecast sized the handler
+bodies, which really are thin, and not the supporting context they need: authorizing an action
+requires knowing which skills are in the sender's kit, and **no earlier slice had ever loaded a
+kit** — `battle:join` builds its context with `actor: null`, because participation and status are
+all V1 and V2 read. That single missing piece is roughly 110 lines the design named but never
+assigned a file or an estimate.
+
+## The split, and why the seam is real
+
+Cut at the service/transport boundary — the same line the whole phase defends. **5a was verified
+standalone, with `battle.gateway.ts` still at its slice-3 state**: `npx tsc --noEmit` clean,
+`pnpm lint` clean, `pnpm test` 395/395, `pnpm test:e2e` 38/38, `pnpm build` clean. That check is
+what proves the cut is a real architectural seam and not a cosmetic partition of a commit that
+only works whole.
+
+## Verification
+
+`npx tsc --noEmit` clean; `pnpm lint` clean; `pnpm test` 395/395; `pnpm test:e2e` 38/38;
+`pnpm build` clean with `dist/main.js` at the root of `dist/`.
+
+**Measured logic lines: 344** against the 400 budget (`git diff --numstat main...feat/ws-session-context -- 'src/**/*.ts' ':!*.spec.ts'`).
+
+## Work units
+
+- `feat(ws): build the action and reaction session context`
+- `feat(ws): advance the round through the engine after a resolved turn`
+
+Merged to `main` in PR #40.
+
+---
+
+# Slice 5b — `feat/ws-action-wiring` (base: slice 5a) — MERGED
+
+> Reconstructed after the fact, same note as 5a.
+
+## What landed
+
+| File | Action | What |
+|---|---|---|
+| `src/ws/battle.gateway.ts` | Modified | `handleAction` and `handleReaction`, both thin: read the session fresh from the database, deny via `battle:error`, otherwise hand off to `declareAction` or `TurnResolutionService.resolve()` |
+| `src/ws/battle.gateway.spec.ts` | Created | Handler unit coverage against a hand-built fake socket |
+| `test/battle-realtime.e2e-spec.ts` | Modified | The full-round e2e |
+
+**No rule or legality logic was added to the gateway.** Every V1-V7 decision still routes
+exclusively through `authorize()` in `src/ws/rules/message-checks.ts`, which this slice did not
+touch. The handlers are transport; the judgment stays declared once.
+
+## The test that matters
+
+`test(ws): drive a full round between two clients end to end` — two sockets, scripted dice, one
+round from the declared action through the reaction window to the identical
+`battle:turn_resolved` arriving at both clients and `battle:round_start` opening the next round.
+It is the first test in the change that proves the five preceding slices actually **compose**;
+until it, each had only been proven alone.
+
+## Verification
+
+`npx tsc --noEmit` clean; `pnpm lint` clean; `pnpm test` 401/401; `pnpm test:e2e` 39/39;
+`pnpm build` clean with `dist/main.js` at the root of `dist/`.
+
+**Measured logic lines: 175** against the 400 budget.
+
+## Work units
+
+- `feat(ws): resolve declared actions through the combat engine`
+- `test(ws): drive a full round between two clients end to end`
+- `docs(ws): split slice 5 into the session context and the handlers`
+
+Merged to `main` in PR #41.
+
+---
+
+# Slice 6 — `feat/ws-reaction-timeout` (base: slice 5b) — MERGED
+
+> The delegated apply agent was terminated mid-run by an API rate limit (HTTP 429, session limit)
+> after writing the registry and the session/gateway wiring but before the module registration,
+> the e2e and any commit. The orchestrator finished it inline rather than relaunching. This
+> section records the whole slice.
+
+## What landed
+
+| File | Action | What |
+|---|---|---|
+| `src/ws/reaction-timer.registry.ts` | Created | `Map<battleId, NodeJS.Timeout>`; `arm`/`cancel`/`onModuleDestroy`; `.unref()` so a pending timer never holds the process or a Jest run open |
+| `src/ws/battle-session.service.ts` | Modified | `settleOverdue()`: reads the persisted deadline and, if it has passed, resolves through the same `TurnResolutionService.resolve()` with `reaction: null`; returns `null` when nothing is overdue |
+| `src/ws/battle.gateway.ts` | Modified | `settleOverdue()` called at the top of EVERY handler; arms the timer when a window opens and cancels it on any resolution |
+| `src/ws/ws.module.ts` | Modified | Registers `ReactionTimerRegistry` |
+| `test/battle-realtime.e2e-spec.ts` | Modified | The backdated-expiry block and the two ordering guards |
+
+## The one thing that had to be structurally true
+
+The timer has **no resolution logic of its own**. Its callback calls the same
+`TurnResolutionService.resolve()` that the reaction handler and the lazy path call, and the
+resolver's atomic claim decides which of the three actually reaches the engine. There is exactly
+one way to end a turn no matter which path noticed the window first.
+
+The lazy path is the load-bearing one: Render's free tier sleeps after fifteen minutes without
+traffic, so a `setTimeout` dies with the process while the turn it was watching would otherwise
+hang forever with nobody left to close it.
+
+## The bug the unit suite could not see
+
+`battle.gateway.ts` injected `ReactionTimerRegistry` and `ws.module.ts` did not register it.
+**414 unit tests stayed green and the application could not boot**:
+
+```
+Nest can't resolve dependencies of the BattleGateway
+(JwtService, BattleSessionService, TurnResolutionService, ?).
+ReactionTimerRegistry at index [3] is not available in the WsModule module.
+```
+
+Unit specs construct the gateway with `new`, so the DI graph is never exercised. Only
+`pnpm test:e2e` catches it. This is the third distinct shape of "green tests, broken system" in
+this change, after `isolatedModules` hiding type errors and an unapplied migration hiding a
+missing column — and none of the three is caught by `pnpm test`.
+
+## The e2e, and why the deadline lives in a column
+
+Expiry is proven by backdating `reactionDeadline` through `prisma.battle.update` and sending any
+message — no sleeping fifteen real seconds, no fake timers pointed at live socket I/O. The turn
+resolves with no reaction record, and the defender's `reactionAvailable` is read back **from the
+database** and is still `true`. Expiry conserves the reaction.
+
+Two ordering guards ride along: a reaction with no window open is refused `NO_OPEN_WINDOW`, and
+a second action from a player whose own window is still open is refused `ALREADY_DECLARED` —
+deliberately distinct from `NOT_YOUR_TURN`, because it *is* their turn, they already moved.
+
+## Verification
+
+`npx tsc --noEmit` clean; `pnpm lint` clean; `pnpm test` 414/414 in 41 suites; `pnpm test:e2e`
+42/42 in 8 suites; `pnpm build` clean with `dist/main.js` at the root of `dist/`.
+
+**Measured logic lines: 179** against the 400 budget (forecast was 55-75).
+
+## Work units
+
+- `feat(ws): add in-memory reaction timer registry`
+- `feat(ws): add reaction window with timeout`
+- `test(ws): cover backdated expiry and duplicate declaration refusals`
+- `docs(ws): mark slice 6 tasks complete`
+
+Merged to `main` in PR #42.
+
+# Slice 7 — `feat/ws-battle-recovery` (base: Slice 6) — COMPLETE, pushed, pending its PR
 
 This was the LAST slice of `add-realtime-battle`. Base branch `feat/ws-reaction-timeout` (Slice
 6) was checked out fresh; `feat/ws-battle-recovery` created from it and never pushed, per the

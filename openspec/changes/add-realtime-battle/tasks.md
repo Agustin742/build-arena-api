@@ -247,14 +247,20 @@ environment; every PR is opened by hand at
       override also drives `freezeCombatant`'s initiative roll during the REST `accept` step;
       under-budgeting the script surfaces as exhaustion, not a wrong assertion.
       `test(ws): cover a full round resolving through both handlers`
-- [ ] 5.5 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
+- [x] 5.5 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
       slice 4. Open PR 5; retarget base to `feat/ws-turn-resolution`.
-      **BLOCKED**: all four verify commands ran green (see apply-progress), but the measured
-      logic-line diff is 519 additions / 547 net against the 400 budget (1.3x forecast).
-      Stopped before commit per delivery_strategy `ask-on-risk` — no `size:exception` granted.
-      Native `sdd-attempt settle` independently confirms `blocked(maintainer_decision)` on its
-      own everything-included changed-line ceiling. Nothing committed; all changes sit
-      uncommitted on `feat/ws-action-wiring`, working tree only.
+      **RESOLVED BY SPLITTING.** The measured diff was 519 logic lines against the 400 budget,
+      so apply stopped before committing per `ask-on-risk` — no `size:exception` was granted.
+      On the user's decision the slice was split at the service/transport boundary:
+      - **5a** `feat/ws-session-context` — the ACTION/REACTION context builder with the first
+        kit lookup, `applicableSkillCodes`, `startRound` and its persistence. **344 lines.**
+        Verified standalone WITHOUT the gateway: tsc, lint, 395 unit and 38 e2e all green,
+        which is what proves the cut is real and not a cosmetic partition.
+      - **5b** `feat/ws-action-wiring` — the `battle:action`/`battle:reaction` handlers and the
+        full-round e2e. **175 lines.** 401 unit, 39 e2e.
+      Both branches merged to `main` (PRs #40 and #41). The forecast of 45–65 undercounted by
+      roughly 8x because it sized the handler bodies and not the kit-aware authorization
+      context they need, which no earlier slice had ever built.
 
 ## Slice 6 — `feat/ws-reaction-timeout` (base: slice 5)
 
