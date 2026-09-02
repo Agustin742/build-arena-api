@@ -132,7 +132,18 @@ export class BattleGateway
     }
 
     this.reactionTimer.cancel(battleId);
-    await this.emitResolution(battleId, outcome);
+
+    if (outcome.kind === 'ABANDONED') {
+      this.server.to(battleRoom(battleId)).emit(ServerEvent.ENDED, {
+        battleId,
+        winnerId: outcome.winnerId,
+        reason: 'ABANDONMENT',
+        endedAt: outcome.endedAt.toISOString(),
+      });
+      return;
+    }
+
+    await this.emitResolution(battleId, outcome.outcome);
   }
 
   /**

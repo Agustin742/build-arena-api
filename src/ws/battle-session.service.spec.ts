@@ -405,6 +405,8 @@ describe('BattleSessionService', () => {
         currentRound: 1,
         pendingActionSkillCode: null,
         reactionDeadline: null,
+        disconnectedUserId: null,
+        disconnectDeadline: null,
       });
 
       await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
@@ -416,6 +418,8 @@ describe('BattleSessionService', () => {
         currentRound: 1,
         pendingActionSkillCode: 'POWER_STRIKE',
         reactionDeadline: new Date(Date.now() + 60_000),
+        disconnectedUserId: null,
+        disconnectDeadline: null,
       });
 
       await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
@@ -427,6 +431,8 @@ describe('BattleSessionService', () => {
         currentRound: 1,
         pendingActionSkillCode: 'POWER_STRIKE',
         reactionDeadline: new Date(Date.now() - 1_000),
+        disconnectedUserId: null,
+        disconnectDeadline: null,
       });
       resolve.mockResolvedValue(outcome);
 
@@ -436,7 +442,95 @@ describe('BattleSessionService', () => {
       // is preserved by `TurnResolutionService.resolve`'s own rule (never
       // re-derived here), not by any special case in `settleOverdue`.
       expect(resolve).toHaveBeenCalledWith(BATTLE_ID, 1, 'POWER_STRIKE', null);
-      expect(result).toBe(outcome);
+      expect(result).toEqual({ kind: 'TURN_RESOLVED', outcome });
+    });
+
+    /** A battle IN_PROGRESS, ready for the abandonment branch. */
+    const abandonableBattle = (overrides: Record<string, unknown> = {}) => ({
+      status: BattleStatus.IN_PROGRESS,
+      challengerId: ME,
+      opponentId: RIVAL,
+      currentRound: 1,
+      pendingActionSkillCode: null,
+      reactionDeadline: null,
+      disconnectedUserId: null,
+      disconnectDeadline: null,
+      ...overrides,
+    });
+
+    it('does nothing while the disconnect deadline has not yet passed', async () => {
+      findUnique.mockResolvedValue(
+        abandonableBattle({
+          disconnectedUserId: RIVAL,
+          disconnectDeadline: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it("closes the battle via closeBattle in the survivor's favor once the disconnect deadline has passed", async () => {
+      findUnique.mockResolvedValue(
+        abandonableBattle({
+          disconnectedUserId: RIVAL,
+          disconnectDeadline: new Date(Date.now() - 1_000),
+        }),
+      );
+      update.mockResolvedValue(undefined);
+
+      const result = await service.settleOverdue(BATTLE_ID);
+
+      expect(result).toEqual({
+        kind: 'ABANDONED',
+        winnerId: ME,
+        endedAt: expect.any(Date) as Date,
+      });
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BATTLE_ID },
+        data: {
+          status: BattleStatus.FINISHED,
+          winnerId: ME,
+          endedAt: expect.any(Date) as Date,
+          disconnectedUserId: null,
+          disconnectDeadline: null,
+        },
+      });
+      expect(resolve).not.toHaveBeenCalled();
+    });
+
+    it('checks abandonment before any pending reaction window, closing the battle first', async () => {
+      findUnique.mockResolvedValue(
+        abandonableBattle({
+          pendingActionSkillCode: 'POWER_STRIKE',
+          reactionDeadline: new Date(Date.now() - 1_000),
+          disconnectedUserId: ME,
+          disconnectDeadline: new Date(Date.now() - 1_000),
+        }),
+      );
+      update.mockResolvedValue(undefined);
+
+      const result = await service.settleOverdue(BATTLE_ID);
+
+      expect(result).toEqual({
+        kind: 'ABANDONED',
+        winnerId: RIVAL,
+        endedAt: expect.any(Date) as Date,
+      });
+      expect(resolve).not.toHaveBeenCalled();
+    });
+
+    it('never re-closes a battle abandonment already found not IN_PROGRESS', async () => {
+      findUnique.mockResolvedValue(
+        abandonableBattle({
+          status: BattleStatus.FINISHED,
+          disconnectedUserId: RIVAL,
+          disconnectDeadline: new Date(Date.now() - 1_000),
+        }),
+      );
+
+      await expect(service.settleOverdue(BATTLE_ID)).resolves.toBeNull();
+      expect(update).not.toHaveBeenCalled();
     });
   });
 

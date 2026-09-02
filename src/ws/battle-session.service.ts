@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import type { BattleSessionRow } from '../battle/battle.mapper';
 import { BattleService } from '../battle/battle.service';
-import { applyTransition } from '../battle/rules';
+import { applyTransition, closeBattle } from '../battle/rules';
 import { actionResolutionOf, isApplicable, REACTION_TABLE } from '../combat';
 import { BattleStatus, SkillType } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +29,15 @@ export type AdmitJoinResult =
   | { readonly ok: false; readonly denial: WsDenial };
 
 export type MessageAdmitResult = AdmitJoinResult;
+
+/** What the lazy path (`settleOverdue`) found and already acted on. */
+export type SettleOutcome =
+  | { readonly kind: 'TURN_RESOLVED'; readonly outcome: TurnResolutionOutcome }
+  | {
+      readonly kind: 'ABANDONED';
+      readonly winnerId: string;
+      readonly endedAt: Date;
+    };
 
 /** `battle:reaction_window`'s deadline: 15 seconds from declaration (Event Contract). */
 const REACTION_WINDOW_MS = 15_000;
@@ -132,26 +141,40 @@ export class BattleSessionService {
   }
 
   /**
-   * The LOAD-BEARING lazy path (design's sequence diagram 2): called before
-   * every message's own checks. If this battle's reaction window has a
-   * deadline already in the past, resolves it through the exact same
-   * `TurnResolutionService.resolve()` the timer and the reaction handler
-   * call — never a second resolution path. `reaction: null` is what makes
-   * expiry preserve the defender's `reactionAvailable` (the resolver's own
-   * rule, not re-derived here). Returns `null` when nothing was overdue.
+   * The LOAD-BEARING lazy path (design's sequence diagrams 2 and 3): called
+   * before every message's own checks. Checks abandonment first — a
+   * survivor's message must close an overdue battle before anything else,
+   * including a pending reaction window — then falls back to the reaction
+   * window branch. `reaction: null` is what makes expiry preserve the
+   * defender's `reactionAvailable` (the resolver's own rule, not re-derived
+   * here). Returns `null` when nothing was overdue.
    */
-  async settleOverdue(battleId: string): Promise<TurnResolutionOutcome | null> {
+  async settleOverdue(battleId: string): Promise<SettleOutcome | null> {
     const battle = await this.prisma.battle.findUnique({
       where: { id: battleId },
       select: {
+        status: true,
+        challengerId: true,
+        opponentId: true,
         currentRound: true,
         pendingActionSkillCode: true,
         reactionDeadline: true,
+        disconnectedUserId: true,
+        disconnectDeadline: true,
       },
     });
 
+    if (!battle) {
+      return null;
+    }
+
+    const abandoned = await this.closeIfAbandoned(battleId, battle);
+
+    if (abandoned) {
+      return abandoned;
+    }
+
     if (
-      !battle ||
       battle.pendingActionSkillCode === null ||
       battle.reactionDeadline === null ||
       battle.reactionDeadline.getTime() > Date.now()
@@ -159,12 +182,69 @@ export class BattleSessionService {
       return null;
     }
 
-    return this.turnResolution.resolve(
+    const outcome = await this.turnResolution.resolve(
       battleId,
       battle.currentRound,
       battle.pendingActionSkillCode,
       null,
     );
+
+    return { kind: 'TURN_RESOLVED', outcome };
+  }
+
+  /**
+   * The abandonment branch (D2's `closeBattle`): a passed `disconnectDeadline`
+   * with no reconnect closes the battle in the surviving participant's favor
+   * before their message is otherwise processed. Closing twice, or closing a
+   * battle some other path already finished, both fall out of `closeBattle`
+   * refusing anything not `IN_PROGRESS` — a graceful no-op here, never a
+   * throw, because unlike a fresh defeat this path is reached from whatever
+   * message happens to arrive next. A battle abandoned by BOTH participants
+   * simply never gets a survivor's message to trigger this — the accepted
+   * limitation, not a bug.
+   */
+  private async closeIfAbandoned(
+    battleId: string,
+    battle: {
+      status: BattleStatus;
+      challengerId: string;
+      opponentId: string;
+      disconnectedUserId: string | null;
+      disconnectDeadline: Date | null;
+    },
+  ): Promise<SettleOutcome | null> {
+    if (
+      battle.disconnectedUserId === null ||
+      battle.disconnectDeadline === null ||
+      battle.disconnectDeadline.getTime() > Date.now()
+    ) {
+      return null;
+    }
+
+    const survivorId =
+      battle.disconnectedUserId === battle.challengerId
+        ? battle.opponentId
+        : battle.challengerId;
+    const outcome = closeBattle(battle, survivorId, 'ABANDONMENT');
+
+    if (!outcome.allowed) {
+      return null;
+    }
+
+    const endedAt = new Date();
+
+    await this.prisma.battle.update({
+      where: { id: battleId },
+      data: {
+        status: outcome.to,
+        winnerId: outcome.winnerId,
+        endedAt,
+        disconnectedUserId: null,
+        disconnectDeadline: null,
+      },
+    });
+
+    return { kind: 'ABANDONED', winnerId: outcome.winnerId, endedAt };
   }
 
   /**

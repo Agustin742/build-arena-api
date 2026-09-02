@@ -186,7 +186,10 @@ describe('BattleGateway — action and reaction handlers', () => {
     });
 
     it('cancels the timer and broadcasts the outcome when the window was already overdue', async () => {
-      settleOverdue.mockResolvedValue(baseOutcome);
+      settleOverdue.mockResolvedValue({
+        kind: 'TURN_RESOLVED',
+        outcome: baseOutcome,
+      });
       startRound.mockResolvedValue({ actor: defenderCombatant, events: [] });
       admitAction.mockResolvedValue({
         ok: false,
@@ -395,6 +398,33 @@ describe('BattleGateway — action and reaction handlers', () => {
         battleId: BATTLE_ID,
         winnerId: actorCombatant.userId,
         reason: 'DEFEAT',
+        endedAt: endedAt.toISOString(),
+      });
+    });
+  });
+
+  describe('handleJoin — settleOverdue finding an abandoned battle', () => {
+    it('emits battle:ended with reason ABANDONMENT before the join is otherwise admitted', async () => {
+      const endedAt = new Date('2099-01-01T00:00:00.000Z');
+      settleOverdue.mockResolvedValue({
+        kind: 'ABANDONED',
+        winnerId: ACTOR_USER_ID,
+        endedAt,
+      });
+      admitJoin.mockResolvedValue({
+        ok: false,
+        denial: { code: 'WRONG_STATUS', message: 'the battle is finished' },
+      });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleJoin(socket, { battleId: BATTLE_ID });
+
+      expect(cancel).toHaveBeenCalledWith(BATTLE_ID);
+      expect(server.to).toHaveBeenCalledWith(ROOM);
+      expect(roomEmit).toHaveBeenCalledWith(ServerEvent.ENDED, {
+        battleId: BATTLE_ID,
+        winnerId: ACTOR_USER_ID,
+        reason: 'ABANDONMENT',
         endedAt: endedAt.toISOString(),
       });
     });
