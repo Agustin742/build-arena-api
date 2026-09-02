@@ -484,8 +484,10 @@ model BattleTurn {
 
 ### 5.1 Decisiones del modelo que hay que poder defender
 
-**`BattleCombatant` guarda una copia de los atributos, no solo una referencia a `Build`.**
-Si el jugador edita o borra su build en mitad de una batalla, el combate no puede cambiar de reglas a mitad de camino. Los atributos, la Clase de Armadura y los puntos de vida máximos se **congelan** al iniciar la batalla. `buildId` queda como referencia opcional, solo para historial, y se anula si la build desaparece.
+**`BattleCombatant` guarda una copia de los atributos y del kit, no solo una referencia a `Build`.**
+Si el jugador edita o borra su build en mitad de una batalla, el combate no puede cambiar de reglas a mitad de camino. Los atributos, la Clase de Armadura, los puntos de vida máximos **y la lista de habilidades** se **congelan** al aceptar. `buildId` queda como referencia opcional, solo para historial, y se anula si la build desaparece.
+
+El kit congelado vive en `BattleCombatantSkill` y apunta **directo al catálogo**, no a `BuildSkill`. Esa es la única forma de que sobreviva a las dos cosas que lo amenazan: `PATCH /builds` reemplaza el kit entero —un kit son cuatro casilleros, no una lista a la que se agrega— y borrar la build anula `buildId`. Congelar solo los números y leer las habilidades en vivo dejaba la mitad del congelado sin hacer.
 
 **`Battle` recuerda la build del desafiante desde que se manda el desafío.**
 El congelado ocurre al **aceptar**, y ahí se crean los dos `BattleCombatant` de una sola vez. Pero el desafiante eligió su build antes, cuando mandó el desafío, y esa elección tiene que esperar en algún lado mientras la batalla está `PENDING`: esa es `challengerBuildId`. Congelar a los dos en el mismo instante impide que uno vea la build del rival y edite la suya antes de que arranque el combate. La columna es opcional y se anula si la build desaparece, por el mismo motivo que `BattleCombatant.buildId`: borrar una build no puede llevarse puesto el historial de una batalla terminada. Un desafío pendiente cuya build ya no existe no se puede aceptar, y la API lo dice.
@@ -637,7 +639,7 @@ Ninguna de estas es opcional. Cada una cierra una forma concreta de trampa.
 1. El token es válido y el usuario es uno de los dos combatientes de esa batalla.
 2. La batalla está en estado `IN_PROGRESS`.
 3. Es el turno de quien envía, salvo que sea una reacción con ventana abierta.
-4. La habilidad declarada pertenece al kit de esa build.
+4. La habilidad declarada pertenece al **kit congelado de esa batalla**, no al de la build tal como está hoy.
 5. El tipo de la habilidad corresponde al momento: `ACTION` en el turno propio, `REACTION` en la ventana.
 6. La reacción todavía está disponible en esta ronda.
 7. No hay un turno ya registrado en esa posición de ronda y secuencia.

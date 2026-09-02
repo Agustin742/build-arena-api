@@ -13,7 +13,7 @@ import { PLAYER_COLUMNS } from '../common/public-player';
 import { RANDOM_SOURCE } from '../common/random-source.token';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { toPublicBattle } from './battle.mapper';
+import { FROZEN_KIT, toPublicBattle } from './battle.mapper';
 import type {
   BattleSessionRow,
   BattleWithPlayers,
@@ -42,16 +42,24 @@ const WITH_PLAYERS = {
   opponent: PLAYER_COLUMNS,
 };
 
-/** Everything the freeze needs off a build, and nothing else. */
+/**
+ * Everything the freeze needs off a build, and nothing else. `skills` is
+ * here because the kit is frozen too: only the ids, since the catalog rows
+ * they point at are seeded and read-only.
+ */
 const BUILD_STATS = {
   id: true,
   strength: true,
   magic: true,
   dexterity: true,
   constitution: true,
+  skills: { select: { skillId: true } },
 } as const;
 
-type FightingBuild = CombatantAttributes & { id: string };
+type FightingBuild = CombatantAttributes & {
+  id: string;
+  skills: { skillId: string }[];
+};
 
 /**
  * The same answer for a battle that does not exist and for one between two
@@ -136,8 +144,8 @@ export class BattleService {
    * throws: a stranger and a non-existent battle are the same `null` here,
    * so no HTTP exception ever has to cross into the socket layer. The
    * `include` carries everything a session needs to resume after a
-   * reconnect — both frozen stat blocks, active conditions, and the full
-   * turn history in the order it was played.
+   * reconnect — both frozen stat blocks with their frozen kits, active
+   * conditions, and the full turn history in the order it was played.
    */
   async findForParticipant(
     id: string,
@@ -147,7 +155,7 @@ export class BattleService {
       where: { id, OR: participantClause(currentUserId) },
       include: {
         ...WITH_PLAYERS,
-        combatants: { include: { conditions: true } },
+        combatants: { include: { conditions: true, skills: FROZEN_KIT } },
         turns: { orderBy: [{ round: 'asc' }, { sequence: 'asc' }] },
       },
     });
@@ -220,12 +228,20 @@ export class BattleService {
     return toPublicBattle(moved, currentUserId);
   }
 
-  /** One combatant, frozen off the build and tied to the player. */
+  /**
+   * One combatant, frozen off the build and tied to the player. The kit is
+   * nested into the same create so it lands in the same statement as the
+   * stats — a freeze that copied the numbers and left the kit for a second
+   * call would have a window where the fight is on and the kit is empty.
+   */
   private combatantFrom(userId: string, build: FightingBuild) {
     return {
       userId,
       buildId: build.id,
       ...freezeCombatant(build, this.random),
+      skills: {
+        create: build.skills.map((entry) => ({ skillId: entry.skillId })),
+      },
     };
   }
 

@@ -227,69 +227,53 @@ chore(combat): tune combat balance values
 
 ---
 
-## Fase 8 — Congelar el kit y exponerlo
+## Fase 8 — Congelar el kit y exponerlo — CERRADA
 
 **Objetivo:** cerrar los dos huecos que aparecieron al documentar la API para el cliente.
-No agregan funcionalidad: sacan una inconsistencia y una omisión que hoy obligan al
+No agregaban funcionalidad: sacaban una inconsistencia y una omisión que obligaban al
 frontend a adivinar.
 
-Los dos son el mismo problema visto desde dos lados. **El kit de una batalla no está
-congelado y tampoco se publica.**
+Los dos eran el mismo problema visto desde dos lados. **El kit de una batalla no estaba
+congelado y tampoco se publicaba.**
 
-### El hueco 1: el kit se lee en vivo, no se congela
+### El hueco 1: el kit se leía en vivo
 
-Al aceptar un desafío, `freezeCombatant` copia a `BattleCombatant` los cuatro atributos y
-los valores derivados. **La lista de habilidades no se copia.** Se lee de `BuildSkill` en
-cada mensaje, a través de `BattleSessionService.kitFor(buildId)`.
+`freezeCombatant` copiaba los cuatro atributos y los valores derivados, pero **no la lista
+de habilidades**: se leía de `BuildSkill` en cada mensaje. Y `PATCH /builds/:id` con
+`skillCodes` reemplaza el kit entero —`deleteMany` más `create`, porque un kit son cuatro
+casilleros y no una lista a la que se agrega—, así que **un jugador podía editar su build
+en medio de una pelea y cambiar las habilidades con las que estaba peleando**.
 
-Y `PATCH /builds/:id` con `skillCodes` reemplaza el kit entero —`deleteMany` más `create`,
-porque un kit son cuatro casilleros y no una lista a la que se agrega—.
+Contradecía de frente lo que la fase 5 dejó escrito. Hoy ya no.
 
-La consecuencia es que **un jugador puede editar su build en medio de una pelea y cambiar
-las habilidades con las que está peleando**. Los atributos siguen congelados, así que no
-puede inflarse las estadísticas: el agujero es de kit, no de números.
+### El hueco 2: el kit congelado no llegaba al cliente
 
-Contradice de frente lo que la fase 5 dejó escrito, que es que aceptar congela a los dos
-combatientes y editar la build después ya no cambia esa pelea. Hoy eso es verdad a medias.
+`CombatantView` llevaba atributos, vida, iniciativa y condiciones, y ninguna habilidad.
+Para las reacciones alcanzaba con `applicableSkillCodes`; para las acciones el cliente
+tenía que pedir `GET /builds/:id` y filtrar por `ACTION` —y eso lee la build **actual**,
+que por el hueco 1 podía no ser la que estaba en juego—.
 
-### El hueco 2: el kit congelado nunca llega al cliente
+### Cómo se cerró
 
-`CombatantView` lleva atributos, vida, iniciativa y condiciones, y ninguna habilidad.
-Ningún evento ni endpoint le dice al cliente **qué acciones puede declarar**.
+- `BattleCombatantSkill` guarda el kit congelado y apunta **directo a `Skill`**, no a
+  `BuildSkill`: así sobrevive tanto a editar la build como al `SET NULL` de borrarla.
+- El kit se crea anidado dentro del mismo `create` que los atributos, en la única
+  sentencia que acepta la batalla.
+- Las siete validaciones y `applicableSkillCodes` leen ese kit desde la fila de la
+  batalla. `BattleSessionService` ya no consulta `BuildSkill` en ningún camino.
+- `CombatantView` suma `skillCodes`, con lo que `battle:state` y `battle:turn_resolved`
+  lo llevan sin ningún evento nuevo. El resolver saca los dos kits de la misma
+  transacción que ya leía las filas.
+- La migración **rellena** el kit de toda batalla ya existente desde `BuildSkill`. No era
+  opcional: sin eso, la validación V4 habría rechazado toda habilidad de toda batalla en
+  curso. Un combatiente cuya build ya estaba borrada queda con el kit vacío que en los
+  hechos ya tenía.
+- `docs/frontend-guide.md` perdió su sección 9, que documentaba estos dos huecos.
 
-Para las reacciones no hace falta: `battle:reaction_window` ya manda
-`applicableSkillCodes`, filtrado por tipo de ataque y disponibilidad. Para las acciones no
-hay nada, así que el cliente tiene que pedir `GET /builds/:id` y filtrar por `ACTION` —y
-eso lee la build **actual**, que por el hueco 1 puede no ser la que está en juego—.
-
-Peor: `BattleDto` no devuelve el `buildId`, así que el cliente tiene que habérselo
-guardado desde que desafió o aceptó.
-
-### Alcance
-
-- Persistir el kit congelado en la batalla, no leerlo de la build.
-- `resolveTurn` y las siete validaciones pasan a leer ese kit congelado.
-- Publicarlo: `CombatantView` suma las habilidades del combatiente, con lo que
-  `battle:state` y `battle:turn_resolved` lo llevan sin ningún evento nuevo.
-- Verificar que editar una build con una batalla en curso deja esa batalla intacta.
-
-### Cuidados
-
-- **Hay filas vivas.** Toda batalla `IN_PROGRESS` al momento de migrar no tiene kit
-  congelado. Decidir explícitamente: rellenar desde `BuildSkill` en la migración, o
-  aceptar que las batallas viejas sigan por el camino actual. No dejarlo librado al azar.
-- `BattleCombatant.buildId` ya es nullable con `SET NULL`, para que borrar una build no se
-  lleve puesta la historia de una batalla terminada. El kit congelado tiene que sobrevivir
-  a ese `SET NULL`: es justamente el caso que hoy devuelve un kit vacío.
-- `applicableSkillCodes` ya se calcula desde el kit; al cambiar la fuente, ese cálculo
-  tiene que seguir dando lo mismo.
-- El contrato de `battle:state` cambia. `docs/frontend-guide.md` documenta los dos huecos
-  en su sección 9: **cuando esta fase entre, esa sección se borra y se actualizan las
-  tablas de eventos.**
-
-**Terminado cuando:** una build editada en medio de una batalla no cambia esa batalla,
-verificado contra el deploy; y el cliente puede armar el menú de acciones sin llamar a
-`/builds`.
+**Verificado:** `test/frozen-kit.e2e-spec.ts` reescribe las dos builds en medio de la
+batalla contra la base real y comprueba que la pelea no cambia — la habilidad agregada
+después se rechaza con `SKILL_NOT_IN_KIT`, y la que se quitó de la build se sigue
+aceptando.
 
 ```
 feat(battle): freeze the skill kit alongside the frozen stats
@@ -310,9 +294,9 @@ docs(design): drop the two gaps phase 8 closed
 
 La semana 4 es margen deliberado. Si las fases 5 y 6 se corren, hay dónde absorberlo. Si no se corren, hay tiempo para la cola de matchmaking de fase 2 del alcance.
 
-**La fase 8 queda fuera de este calendario a propósito.** No es un punto de la consigna: es
-deuda que se descubrió documentando la API para el cliente, y se salda después de entregar.
-El proyecto se aprueba sin ella; el backend no queda pulido sin ella.
+**La fase 8 quedó fuera de este calendario a propósito.** No es un punto de la consigna:
+fue deuda que se descubrió documentando la API para el cliente y se saldó después de
+entregar. El proyecto se aprobaba sin ella; el backend no quedaba pulido sin ella.
 
 ---
 

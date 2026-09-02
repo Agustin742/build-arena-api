@@ -25,7 +25,7 @@ Esa es la premisa del proyecto: *si el cliente puede calcularlo, el cliente pued
 
 ## Estado
 
-La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado, la autenticación funcionando de punta a punta, el motor de combate terminado y el combate en tiempo real andando sobre WebSocket: dos clientes pelean de punta a punta, y desconectar y reconectar a uno recupera la batalla en el punto exacto. Al terminar una batalla puntuable el rating de los dos jugadores se mueve, y el leaderboard lo refleja.
+La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado, la autenticación funcionando de punta a punta, el motor de combate terminado y el combate en tiempo real andando sobre WebSocket: dos clientes pelean de punta a punta, y desconectar y reconectar a uno recupera la batalla en el punto exacto. Al terminar una batalla puntuable el rating de los dos jugadores se mueve, y el leaderboard lo refleja. Aceptar un desafío congela a los dos combatientes por completo —atributos y kit—, y ese kit congelado viaja al cliente en cada evento de estado.
 
 | Fase | Estado |
 | --- | --- |
@@ -36,8 +36,8 @@ La API está desplegada, con el modelo de datos migrado, el catálogo de habilid
 | 4 — Builds y catálogo | Completa |
 | 5 — Social y desafíos | Completa |
 | 6 — Tiempo real | Completa |
-| 7 — Rating y cierre | En curso: rating, leaderboard y balanceo hechos; queda la verificación contra el deploy |
-| 8 — Congelar el kit y exponerlo | Pendiente: deuda posterior a la entrega, no es un punto de la consigna |
+| 7 — Rating y cierre | Completa |
+| 8 — Congelar el kit y exponerlo | Completa: deuda posterior a la entrega, no era un punto de la consigna |
 
 ---
 
@@ -143,7 +143,7 @@ Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la
 | `POST` | `/battles` | Desafía a otro jugador con una build | Disponible |
 | `GET` | `/battles` | Batallas propias | Disponible |
 | `GET` | `/battles/:id` | Una batalla en la que participás | Disponible |
-| `PATCH` | `/battles/:id/accept` | Acepta el desafío y congela a los dos combatientes | Disponible |
+| `PATCH` | `/battles/:id/accept` | Acepta el desafío y congela a los dos combatientes, atributos y kit | Disponible |
 | `PATCH` | `/battles/:id/reject` | Rechaza el desafío recibido | Disponible |
 | `PATCH` | `/battles/:id/cancel` | Cancela el desafío enviado | Disponible |
 | `GET` | `/leaderboard` | Ranking global por rating, de mayor a menor | Disponible |
@@ -310,7 +310,7 @@ Una sala por batalla, con los dos participantes y nadie más.
 
 | Del servidor | Cuándo |
 | --- | --- |
-| `battle:state` | Al entrar o reconectar: estado completo, historial y ventana abierta si la hay |
+| `battle:state` | Al entrar o reconectar: estado completo, kit congelado de cada combatiente, historial y ventana abierta si la hay |
 | `battle:reaction_window` | Se abrió una ventana, con su plazo y las habilidades aplicables |
 | `battle:turn_resolved` | El turno se resolvió, con las tiradas y el daño |
 | `battle:round_start` | Arranca la ronda siguiente |
@@ -409,8 +409,12 @@ De ahí caen solos los tres casos: plazo vencido, declinación explícita y reac
 ### Reconexión
 
 `battle:join` devuelve el estado completo **desde la base**: estado, ronda, jugador activo, los
-dos bloques de atributos congelados, las condiciones activas, el historial de turnos ordenado, y
-la ventana abierta con lo que le queda de plazo.
+dos bloques congelados con sus atributos y su kit, las condiciones activas, el historial de
+turnos ordenado, y la ventana abierta con lo que le queda de plazo.
+
+El kit va en `skillCodes`, y es de ahí que el cliente arma el menú de acciones. No de
+`GET /builds/:id`: esa ruta lee la build **de ahora**, y la que está peleando es la que se
+congeló al aceptar. Editar una build en medio de una batalla no cambia esa batalla.
 
 Por eso el criterio de terminado de la fase es el que es: dos clientes pelean de punta a punta, y
 desconectar y reconectar a uno recupera el combate en el punto exacto. El test que lo prueba usa
@@ -533,6 +537,7 @@ El acceso a recursos ajenos responde `404` y no `403`, para no confirmar qué ex
 | [`docs/design/combat-engine.md`](./docs/design/combat-engine.md) | Motor de combate: guía de lectura, reglas y tubería |
 | [`docs/design/implementation-plan.md`](./docs/design/implementation-plan.md) | Plan de fases y calendario |
 | [`docs/design/git-workflow.md`](./docs/design/git-workflow.md) | Ramas, commits e integración |
+| [`docs/frontend-guide.md`](./docs/frontend-guide.md) | Guía de integración para el cliente: endpoints, contrato de WebSocket y flujo de una partida |
 
 Las capacidades se especifican con desarrollo guiado por especificación. Ocho especificaciones
 vivas en [`openspec/specs/`](./openspec/specs): cuatro del motor de combate y cuatro del tiempo

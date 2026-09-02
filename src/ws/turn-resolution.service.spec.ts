@@ -74,6 +74,7 @@ const combatantRow = (
   initiative: 10,
   reactionAvailable: true,
   conditions: [],
+  skills: [{ skill: { code: 'POWER_STRIKE', type: 'ACTION' } }],
   ...overrides,
 });
 
@@ -190,6 +191,40 @@ describe('TurnResolutionService', () => {
       });
     });
 
+    it("carries each combatant's frozen kit out with the resolution", async () => {
+      // The engine's `Combatant` has no kit and does not need one, but
+      // `battle:turn_resolved` renders the same CombatantView `battle:state`
+      // does — so the kit has to come out of the transaction that already
+      // read the rows, not out of a second query in the gateway.
+      armBattle({
+        combatants: [
+          combatantRow(ACTOR_ID, ACTOR_USER_ID, {
+            skills: [
+              { skill: { code: 'POWER_STRIKE', type: 'ACTION' } },
+              { skill: { code: 'PARRY', type: 'REACTION' } },
+            ],
+          }),
+          combatantRow(DEFENDER_ID, DEFENDER_USER_ID, {
+            skills: [{ skill: { code: 'DODGE', type: 'REACTION' } }],
+          }),
+        ],
+      });
+      findUniqueOrThrowSkill.mockResolvedValueOnce(powerStrike);
+      createManyTurn.mockResolvedValue({ count: 2 });
+
+      const result = await service.resolve(
+        BATTLE_ID,
+        ROUND,
+        'POWER_STRIKE',
+        null,
+      );
+
+      expect(result.kits).toEqual({
+        [ACTOR_ID]: ['POWER_STRIKE', 'PARRY'],
+        [DEFENDER_ID]: ['DODGE'],
+      });
+    });
+
     it('never calls the engine when the claim loses (count === 0), re-reading the persisted result instead', async () => {
       updateMany.mockResolvedValue({ count: 0 });
       findManyTurn.mockResolvedValue([
@@ -228,6 +263,12 @@ describe('TurnResolutionService', () => {
       expect(createManyTurn).not.toHaveBeenCalled();
       expect(result.turns).toHaveLength(1);
       expect(result.defender.currentHp).toBe(25);
+      // The re-emit is a full re-read, so the kits come back with it — a
+      // reconnecting client must not get an emptier payload than the first.
+      expect(result.kits).toEqual({
+        [ACTOR_ID]: ['POWER_STRIKE'],
+        [DEFENDER_ID]: ['POWER_STRIKE'],
+      });
     });
   });
 

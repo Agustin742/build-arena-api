@@ -5,11 +5,27 @@ import type {
   BattleCombatant,
   BattleTurn,
 } from '../generated/prisma/client';
-import type { BattleStatus } from '../generated/prisma/enums';
+import type { BattleStatus, SkillType } from '../generated/prisma/enums';
 
 export type BattleWithPlayers = Battle & {
   challenger: PublicPlayer;
   opponent: PublicPlayer;
+};
+
+/**
+ * The frozen kit, as every read of a combatant asks for it. Declared once
+ * here beside the row it belongs to, so `BattleService` and
+ * `TurnResolutionService` cannot drift into asking for different columns.
+ * Only `code` and `type`: the catalog is seeded and read-only, so the rest
+ * of a skill is the client's to look up once through `GET /skills`.
+ */
+export const FROZEN_KIT = {
+  select: { skill: { select: { code: true, type: true } } },
+} as const;
+
+/** One skill of a combatant's frozen kit, as `FROZEN_KIT` reads it. */
+export type FrozenKitEntry = {
+  skill: { code: string; type: SkillType };
 };
 
 /**
@@ -19,7 +35,10 @@ export type BattleWithPlayers = Battle & {
  * exception, so the socket layer stays free of REST's error vocabulary.
  */
 export type BattleSessionRow = BattleWithPlayers & {
-  combatants: (BattleCombatant & { conditions: ActiveCondition[] })[];
+  combatants: (BattleCombatant & {
+    conditions: ActiveCondition[];
+    skills: FrozenKitEntry[];
+  })[];
   turns: BattleTurn[];
 };
 

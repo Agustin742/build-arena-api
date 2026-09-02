@@ -94,6 +94,10 @@ const baseOutcome: TurnResolutionOutcome = {
   ],
   actor: actorCombatant,
   defender: defenderCombatant,
+  kits: {
+    [actorCombatant.id]: ['POWER_STRIKE'],
+    [defenderCombatant.id]: ['PARRY'],
+  },
   events: [],
   defeatedId: null,
   winnerId: null,
@@ -359,6 +363,12 @@ describe('BattleGateway — action and reaction handlers', () => {
           turns: [
             expect.objectContaining({ skillCode: 'POWER_STRIKE' }),
             expect.objectContaining({ skillCode: 'PARRY' }),
+          ],
+          // The frozen kit rides along, so a client that only ever listens
+          // to turn_resolved still knows what it may declare next round.
+          combatants: [
+            expect.objectContaining({ skillCodes: ['POWER_STRIKE'] }),
+            expect.objectContaining({ skillCodes: ['PARRY'] }),
           ],
         }),
       );

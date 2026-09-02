@@ -97,6 +97,10 @@ export type CombatantView = {
   initiative: number;
   reactionAvailable: boolean;
   conditions: { type: string; roundsRemaining: number }[];
+  // The kit this combatant was frozen with, in the order it was frozen. It
+  // is what the client builds its action menu from: `GET /builds` reads the
+  // build as it is NOW, which is not necessarily the one in this fight.
+  skillCodes: string[];
 };
 
 /** One persisted `BattleTurn` row, rendered for the wire. */

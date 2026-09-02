@@ -23,6 +23,7 @@ const challengerBuild = {
   magic: 13,
   dexterity: 12,
   constitution: 10,
+  skills: [{ skillId: 'skill-cleave' }, { skillId: 'skill-parry' }],
 };
 
 const opponentBuild = {
@@ -31,10 +32,16 @@ const opponentBuild = {
   magic: 15,
   dexterity: 13,
   constitution: 12,
+  skills: [{ skillId: 'skill-firebolt' }],
 };
 
 /** What a frozen combatant looks like on the way into the database. */
-type FrozenRow = { userId: string; buildId: string; armorClass: number };
+type FrozenRow = {
+  userId: string;
+  buildId: string;
+  armorClass: number;
+  skills: { create: { skillId: string }[] };
+};
 
 const players = {
   challenger: { id: ME, username: 'ada', rating: 1200 },
@@ -323,6 +330,23 @@ describe('BattleService', () => {
         maxHp: 30,
         currentHp: 30,
       });
+    });
+
+    it('freezes each combatant kit alongside their stats', async () => {
+      // The kit is copied for the same reason the attributes are: editing the
+      // build after the fight starts must not reach the fight. A live read
+      // through BuildSkill would let PATCH /builds swap the kit mid-battle.
+      bothBuildsReady();
+
+      await service.accept(BATTLE_ID, ME, { buildId: OPPONENT_BUILD_ID });
+
+      const [challenger, opponent] = updateArgs().data.combatants.create;
+
+      expect(challenger.skills.create).toEqual([
+        { skillId: 'skill-cleave' },
+        { skillId: 'skill-parry' },
+      ]);
+      expect(opponent.skills.create).toEqual([{ skillId: 'skill-firebolt' }]);
     });
 
     it('refuses to accept when the challenger no longer has their build', async () => {

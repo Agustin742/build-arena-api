@@ -98,7 +98,8 @@ model Skill {
   appliesCondition  ConditionType?
   conditionRounds   Int?
 
-  builds BuildSkill[]
+  builds     BuildSkill[]
+  combatants BattleCombatantSkill[]
 }
 
 model BuildSkill {
@@ -185,12 +186,27 @@ model BattleCombatant {
   initiative        Int
   reactionAvailable Boolean @default(true)
 
-  battle     Battle            @relation(fields: [battleId], references: [id], onDelete: Cascade)
-  user       User              @relation(fields: [userId], references: [id])
-  build      Build?            @relation(fields: [buildId], references: [id], onDelete: SetNull)
+  battle     Battle                @relation(fields: [battleId], references: [id], onDelete: Cascade)
+  user       User                  @relation(fields: [userId], references: [id])
+  build      Build?                @relation(fields: [buildId], references: [id], onDelete: SetNull)
   conditions ActiveCondition[]
+  skills     BattleCombatantSkill[]
 
   @@unique([battleId, userId])
+}
+
+// The kit, frozen in the same statement as the stats above. It points at the
+// catalog and NOT at BuildSkill, which is what lets it outlive both editing
+// the build (PATCH /builds replaces the whole kit) and deleting it (buildId
+// is SET NULL, and a finished battle's history must survive that).
+model BattleCombatantSkill {
+  combatantId String
+  skillId     String
+
+  combatant BattleCombatant @relation(fields: [combatantId], references: [id], onDelete: Cascade)
+  skill     Skill           @relation(fields: [skillId], references: [id])
+
+  @@id([combatantId, skillId])
 }
 
 model ActiveCondition {
