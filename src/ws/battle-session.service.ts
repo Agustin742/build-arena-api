@@ -8,8 +8,11 @@ import { BattleStatus, SkillType } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   BattleReactionWindowPayload,
-  CombatantView,
   BattleStatePayload,
+  CombatantView,
+  LeftView,
+  TurnView,
+  WindowView,
 } from './battle-events';
 import type {
   KitEntry,
@@ -29,6 +32,9 @@ export type MessageAdmitResult = AdmitJoinResult;
 
 /** `battle:reaction_window`'s deadline: 15 seconds from declaration (Event Contract). */
 const REACTION_WINDOW_MS = 15_000;
+
+/** The abandonment grace period a disconnected participant is given. */
+const DISCONNECT_GRACE_MS = 2 * 60_000;
 
 /** A `JOIN` context needs only what V1/V2 read — every other field is inert. */
 const joinContext = (
@@ -161,6 +167,41 @@ export class BattleSessionService {
     );
   }
 
+  /**
+   * Called from `BattleGateway.handleDisconnect` (design's sequence diagram
+   * 3): starts the 2-minute abandonment deadline for a participant whose
+   * socket just dropped. No timer is armed for it — `settleOverdue` above is
+   * the only thing that ever acts on it, lazily, on the survivor's next
+   * message. Returns `null` — nothing to notify — when the battle cannot be
+   * abandoned right now: already over, or the caller was never in it.
+   */
+  async recordDisconnect(
+    battleId: string,
+    userId: string,
+  ): Promise<Date | null> {
+    const battle = await this.prisma.battle.findUnique({
+      where: { id: battleId },
+      select: { status: true, challengerId: true, opponentId: true },
+    });
+
+    if (
+      !battle ||
+      battle.status !== BattleStatus.IN_PROGRESS ||
+      (battle.challengerId !== userId && battle.opponentId !== userId)
+    ) {
+      return null;
+    }
+
+    const disconnectDeadline = new Date(Date.now() + DISCONNECT_GRACE_MS);
+
+    await this.prisma.battle.update({
+      where: { id: battleId },
+      data: { disconnectedUserId: userId, disconnectDeadline },
+    });
+
+    return disconnectDeadline;
+  }
+
   /** Thin delegate: the seven checks are declared exactly once, in `rules/`. */
   authorizeMessage(
     intent: MessageIntent,
@@ -186,7 +227,10 @@ export class BattleSessionService {
 
     // `authorizeMessage` already refused a `null` row, so `row` is not null
     // by the time we get here.
-    const admitted = row as BattleSessionRow;
+    const admitted = await this.clearDisconnectIfMine(
+      row as BattleSessionRow,
+      actorId,
+    );
 
     if (admitted.status !== BattleStatus.ACCEPTED) {
       return { ok: true, row: admitted };
@@ -222,6 +266,28 @@ export class BattleSessionService {
         startedAt,
       },
     };
+  }
+
+  /**
+   * A rejoining participant cancels their OWN abandonment deadline
+   * (requirement "Reconnecting Before the Abandonment Deadline Cancels
+   * It") — never the other side's. A targeted update, so an open reaction
+   * window's `reactionDeadline` is never touched by this.
+   */
+  private async clearDisconnectIfMine(
+    row: BattleSessionRow,
+    actorId: string,
+  ): Promise<BattleSessionRow> {
+    if (row.disconnectedUserId !== actorId) {
+      return row;
+    }
+
+    await this.prisma.battle.update({
+      where: { id: row.id },
+      data: { disconnectedUserId: null, disconnectDeadline: null },
+    });
+
+    return { ...row, disconnectedUserId: null, disconnectDeadline: null };
   }
 
   /** One combatant's kit, read fresh: `Build -> BuildSkill -> Skill`. */
@@ -353,16 +419,58 @@ export class BattleSessionService {
   }
 
   /**
-   * Today's `battle:state`: status, round, active player, and combatants.
-   * `turns`, `openWindow` and `opponentLeft` join this in slice 7.
+   * `battle:state` — the full reconnect payload (design's sequence diagram
+   * 3): both frozen stat blocks, the resolved turn history in order, an
+   * open reaction window's remaining time (or `null`), and whether the
+   * opponent is mid-disconnect (or `null`). Every field is read straight
+   * off `row` — the database is the only authority a reconnect trusts.
    */
-  toStatePayload(row: BattleSessionRow): BattleStatePayload {
+  async toStatePayload(row: BattleSessionRow): Promise<BattleStatePayload> {
     return {
       battleId: row.id,
       status: row.status,
       currentRound: row.currentRound,
       activeUserId: row.activeUserId,
       combatants: row.combatants.map(toCombatantView),
+      turns: row.turns.map(toTurnView),
+      openWindow: await this.openWindowView(row),
+      opponentLeft: toLeftView(row),
+    };
+  }
+
+  /**
+   * Mirrors `declareAction`'s own `applicableSkillCodes` computation —
+   * reused, never re-derived — so a reconnecting client sees exactly what
+   * the defender was originally shown.
+   */
+  private async openWindowView(
+    row: BattleSessionRow,
+  ): Promise<WindowView | null> {
+    if (
+      row.pendingActionSkillCode === null ||
+      row.reactionDeadline === null ||
+      row.activeUserId === null
+    ) {
+      return null;
+    }
+
+    const defender = row.combatants.find(
+      (combatant) => combatant.userId !== row.activeUserId,
+    );
+    const applicableSkillCodes = defender
+      ? await this.applicableReactionSkillCodes(
+          row.pendingActionSkillCode,
+          defender.buildId,
+        )
+      : [];
+
+    return {
+      round: row.currentRound,
+      actorUserId: row.activeUserId,
+      actionSkillCode: row.pendingActionSkillCode,
+      deadline: row.reactionDeadline.toISOString(),
+      remainingMs: Math.max(0, row.reactionDeadline.getTime() - Date.now()),
+      applicableSkillCodes,
     };
   }
 }
@@ -386,3 +494,24 @@ const toCombatantView = (
     roundsRemaining: condition.roundsRemaining,
   })),
 });
+
+const toTurnView = (turn: BattleSessionRow['turns'][number]): TurnView => ({
+  round: turn.round,
+  sequence: turn.sequence,
+  actorId: turn.actorId,
+  kind: turn.kind,
+  skillCode: turn.skillCode,
+  attackRoll: turn.attackRoll,
+  targetValue: turn.targetValue,
+  hit: turn.hit,
+  critical: turn.critical,
+  damage: turn.damage,
+});
+
+const toLeftView = (row: BattleSessionRow): LeftView | null =>
+  row.disconnectedUserId === null || row.disconnectDeadline === null
+    ? null
+    : {
+        userId: row.disconnectedUserId,
+        deadline: row.disconnectDeadline.toISOString(),
+      };

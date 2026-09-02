@@ -55,6 +55,10 @@ const acceptedRow = (
     activeUserId: null,
     combatants: [combatant(ME, 12), combatant(RIVAL, 9)],
     turns: [],
+    pendingActionSkillCode: null,
+    reactionDeadline: null,
+    disconnectedUserId: null,
+    disconnectDeadline: null,
     ...overrides,
   }) as unknown as BattleSessionRow;
 
@@ -437,17 +441,43 @@ describe('BattleSessionService', () => {
   });
 
   describe('toStatePayload', () => {
-    it('assembles battleId, status, currentRound, activeUserId and combatants', () => {
+    it('assembles battleId, status, currentRound, activeUserId, combatants, turns, no window and no disconnect', async () => {
       const row = acceptedRow({
         status: BattleStatus.IN_PROGRESS,
-        currentRound: 1,
+        currentRound: 2,
         activeUserId: ME,
+        turns: [
+          {
+            round: 1,
+            sequence: 1,
+            actorId: 'combatant-11111111-0000-4000-8000-000000000001',
+            kind: 'ACTION',
+            skillCode: 'POWER_STRIKE',
+            attackRoll: 17,
+            targetValue: 12,
+            hit: true,
+            critical: false,
+            damage: 5,
+          },
+          {
+            round: 1,
+            sequence: 2,
+            actorId: 'combatant-22222222-0000-4000-8000-000000000002',
+            kind: 'REACTION',
+            skillCode: null,
+            attackRoll: null,
+            targetValue: null,
+            hit: null,
+            critical: false,
+            damage: 0,
+          },
+        ],
       });
 
-      expect(service.toStatePayload(row)).toEqual({
+      await expect(service.toStatePayload(row)).resolves.toEqual({
         battleId: BATTLE_ID,
         status: BattleStatus.IN_PROGRESS,
-        currentRound: 1,
+        currentRound: 2,
         activeUserId: ME,
         combatants: [
           {
@@ -479,7 +509,186 @@ describe('BattleSessionService', () => {
             conditions: [],
           },
         ],
+        turns: [
+          expect.objectContaining({
+            round: 1,
+            sequence: 1,
+            skillCode: 'POWER_STRIKE',
+          }),
+          expect.objectContaining({ round: 1, sequence: 2, skillCode: null }),
+        ],
+        openWindow: null,
+        opponentLeft: null,
       });
+    });
+
+    it("includes the open window with its remaining time and the defender's applicable reaction skills", async () => {
+      const deadline = new Date(Date.now() + 9_000);
+      const row = acceptedRow({
+        status: BattleStatus.IN_PROGRESS,
+        currentRound: 1,
+        activeUserId: ME,
+        pendingActionSkillCode: 'POWER_STRIKE',
+        reactionDeadline: deadline,
+      });
+      skillFindUniqueOrThrow.mockResolvedValue({
+        requiredAttribute: 'STRENGTH',
+      });
+      buildSkillFindMany.mockResolvedValue([
+        kitEntry('PARRY', 'REACTION', 'STRENGTH'),
+      ]);
+
+      const state = await service.toStatePayload(row);
+
+      expect(state.openWindow?.round).toBe(1);
+      expect(state.openWindow?.actorUserId).toBe(ME);
+      expect(state.openWindow?.actionSkillCode).toBe('POWER_STRIKE');
+      expect(state.openWindow?.deadline).toBe(deadline.toISOString());
+      expect(state.openWindow?.applicableSkillCodes).toEqual(['PARRY']);
+      expect(state.openWindow?.remainingMs).toBeGreaterThan(0);
+      expect(state.openWindow?.remainingMs).toBeLessThanOrEqual(9_000);
+      expect(buildSkillFindMany).toHaveBeenCalledWith({
+        where: { buildId: `build-${RIVAL}` },
+        include: { skill: true },
+      });
+    });
+
+    it('shows no open window once the deadline has already passed', async () => {
+      // `toStatePayload` renders whatever `row` says; `settleOverdue` is the
+      // one place that acts on an overdue deadline, never this method.
+      const row = acceptedRow({
+        status: BattleStatus.IN_PROGRESS,
+        activeUserId: ME,
+        pendingActionSkillCode: 'POWER_STRIKE',
+        reactionDeadline: new Date(Date.now() - 1_000),
+      });
+      skillFindUniqueOrThrow.mockResolvedValue({
+        requiredAttribute: 'STRENGTH',
+      });
+      buildSkillFindMany.mockResolvedValue([]);
+
+      const state = await service.toStatePayload(row);
+
+      expect(state.openWindow?.remainingMs).toBe(0);
+    });
+
+    it('includes opponentLeft when a disconnect is recorded', async () => {
+      const deadline = new Date(Date.now() + 60_000);
+      const row = acceptedRow({
+        status: BattleStatus.IN_PROGRESS,
+        disconnectedUserId: RIVAL,
+        disconnectDeadline: deadline,
+      });
+
+      const state = await service.toStatePayload(row);
+
+      expect(state.opponentLeft).toEqual({
+        userId: RIVAL,
+        deadline: deadline.toISOString(),
+      });
+    });
+  });
+
+  describe('recordDisconnect', () => {
+    it("starts a 2-minute abandonment deadline for a participant's disconnect", async () => {
+      findUnique.mockResolvedValue({
+        status: BattleStatus.IN_PROGRESS,
+        challengerId: ME,
+        opponentId: RIVAL,
+      });
+      update.mockResolvedValue(undefined);
+      const now = Date.now();
+
+      const deadline = await service.recordDisconnect(BATTLE_ID, RIVAL);
+
+      expect(deadline).not.toBeNull();
+      expect((deadline as Date).getTime()).toBeGreaterThanOrEqual(
+        now + 119_000,
+      );
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BATTLE_ID },
+        data: {
+          disconnectedUserId: RIVAL,
+          disconnectDeadline: expect.any(Date) as Date,
+        },
+      });
+    });
+
+    it('does nothing for a battle that is not IN_PROGRESS', async () => {
+      findUnique.mockResolvedValue({
+        status: BattleStatus.FINISHED,
+        challengerId: ME,
+        opponentId: RIVAL,
+      });
+
+      await expect(
+        service.recordDisconnect(BATTLE_ID, RIVAL),
+      ).resolves.toBeNull();
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for a caller who is not a participant', async () => {
+      findUnique.mockResolvedValue({
+        status: BattleStatus.IN_PROGRESS,
+        challengerId: ME,
+        opponentId: RIVAL,
+      });
+
+      await expect(
+        service.recordDisconnect(BATTLE_ID, STRANGER),
+      ).resolves.toBeNull();
+      expect(update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('admitJoin — clearing a disconnect on rejoin', () => {
+    it("clears the rejoining participant's own disconnect state without touching an open window", async () => {
+      findForParticipant.mockResolvedValue(
+        acceptedRow({
+          status: BattleStatus.IN_PROGRESS,
+          currentRound: 1,
+          activeUserId: RIVAL,
+          disconnectedUserId: ME,
+          disconnectDeadline: new Date(Date.now() + 60_000),
+          reactionDeadline: new Date(Date.now() + 10_000),
+          pendingActionSkillCode: 'POWER_STRIKE',
+        }),
+      );
+      update.mockResolvedValue(undefined);
+
+      const result = await service.admitJoin(BATTLE_ID, ME);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error('expected admission');
+      }
+      expect(result.row.disconnectedUserId).toBeNull();
+      expect(result.row.disconnectDeadline).toBeNull();
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BATTLE_ID },
+        data: { disconnectedUserId: null, disconnectDeadline: null },
+      });
+    });
+
+    it("leaves the other participant's disconnect state alone", async () => {
+      findForParticipant.mockResolvedValue(
+        acceptedRow({
+          status: BattleStatus.IN_PROGRESS,
+          currentRound: 1,
+          activeUserId: ME,
+          disconnectedUserId: RIVAL,
+          disconnectDeadline: new Date(Date.now() + 60_000),
+        }),
+      );
+
+      const result = await service.admitJoin(BATTLE_ID, ME);
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        throw new Error('expected admission');
+      }
+      expect(result.row.disconnectedUserId).toBe(RIVAL);
+      expect(update).not.toHaveBeenCalled();
     });
   });
 });
