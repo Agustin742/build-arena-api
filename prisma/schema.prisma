@@ -213,6 +213,7 @@ model BattleTurn {
   kind        SkillType
   skillCode   String?
   attackRoll  Int?
+  attackTotal Int?
   targetValue Int?
   hit         Boolean?
   critical    Boolean   @default(false)
