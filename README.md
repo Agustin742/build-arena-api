@@ -19,7 +19,7 @@ Esa es la premisa del proyecto: *si el cliente puede calcularlo, el cliente pued
 
 ## Estado
 
-En desarrollo. La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado, la autenticación funcionando de punta a punta y el motor de combate terminado y cubierto por tests.
+En desarrollo. La API está desplegada, con el modelo de datos migrado, el catálogo de habilidades cargado, la autenticación funcionando de punta a punta, el motor de combate terminado y el combate en tiempo real andando sobre WebSocket: dos clientes pelean de punta a punta, y desconectar y reconectar a uno recupera la batalla en el punto exacto.
 
 | Fase | Estado |
 | --- | --- |
@@ -27,9 +27,9 @@ En desarrollo. La API está desplegada, con el modelo de datos migrado, el catá
 | 1 — Persistencia | Completa |
 | 2 — Autenticación y seguridad | Completa |
 | 3 — Motor de combate | Completa |
-| 4 — Builds y catálogo | Pendiente |
-| 5 — Social y desafíos | Pendiente |
-| 6 — Tiempo real | Pendiente |
+| 4 — Builds y catálogo | Completa |
+| 5 — Social y desafíos | Completa |
+| 6 — Tiempo real | Completa |
 | 7 — Rating y cierre | Pendiente |
 
 ---
@@ -123,11 +123,25 @@ Todas las rutas exigen un access token salvo las marcadas con `@Public()`. En la
 | `POST` | `/auth/refresh` | Rota el refresh token y emite un par nuevo | Disponible |
 | `POST` | `/auth/logout` | Invalida el refresh token guardado | Disponible |
 | `GET` | `/auth/me` | Perfil del usuario autenticado | Disponible |
-| `GET` | `/skills` | Catálogo de habilidades | Pendiente |
-| `GET/POST/PATCH/DELETE` | `/builds` | Gestión de builds propias | Pendiente |
-| `GET/POST/PATCH/DELETE` | `/friends` | Solicitudes y lista de amigos | Pendiente |
-| `GET/POST/PATCH/DELETE` | `/battles` | Desafíos, combates y replays | Pendiente |
+| `GET` | `/skills` | Catálogo de habilidades | Disponible |
+| `POST` | `/builds` | Crea una build validando presupuestos | Disponible |
+| `GET` | `/builds` | Builds propias | Disponible |
+| `GET` | `/builds/:id` | Una build propia | Disponible |
+| `PATCH` | `/builds/:id` | Edita una build propia | Disponible |
+| `DELETE` | `/builds/:id` | Borra una build propia | Disponible |
+| `POST` | `/friendships` | Envía una solicitud de amistad | Disponible |
+| `GET` | `/friendships` | Solicitudes y amistades, vistas desde quien consulta | Disponible |
+| `PATCH` | `/friendships/:id/accept` | Acepta una solicitud recibida | Disponible |
+| `DELETE` | `/friendships/:id` | Rechaza, cancela o elimina la amistad | Disponible |
+| `POST` | `/battles` | Desafía a otro jugador con una build | Disponible |
+| `GET` | `/battles` | Batallas propias | Disponible |
+| `GET` | `/battles/:id` | Una batalla en la que participás | Disponible |
+| `PATCH` | `/battles/:id/accept` | Acepta el desafío y congela a los dos combatientes | Disponible |
+| `PATCH` | `/battles/:id/reject` | Rechaza el desafío recibido | Disponible |
+| `PATCH` | `/battles/:id/cancel` | Cancela el desafío enviado | Disponible |
 | `GET` | `/leaderboard` | Ranking global | Pendiente |
+
+El combate en sí no es REST: se juega sobre WebSocket, y el REST llega hasta que la batalla queda aceptada. Ver [Tiempo real](#tiempo-real).
 
 ---
 
@@ -244,9 +258,174 @@ No son promesas, son comandos:
 
 ```bash
 rg "@nestjs|@Injectable" src/combat/   # sin coincidencias: el motor es puro
-rg "Math.floor" src/combat/           # solo en core/arithmetic.ts y core/random-source.ts
-pnpm test                              # 141 tests, 15 suites
+rg "Math.floor" src/combat/            # solo en core/arithmetic.ts y core/random-source.ts
+rg "Math.random" src/ -g '!*random-source*'   # sin coincidencias: nadie tira el dado por su cuenta
+pnpm test                              # 432 tests, 41 suites
+pnpm test:e2e                          # 43 tests, 8 suites, contra una base real
 ```
+
+---
+
+## Tiempo real
+
+El combate se juega sobre WebSocket, con Socket.IO. El servidor resuelve **todo**: el cliente
+no tira un solo dado. Lo único que recibe es un evento con lo que ya pasó.
+
+Eso tiene una consecuencia que vale la pena nombrar: el front no necesita saber ninguna regla
+del juego. Es una función pura sobre un registro de eventos, y se puede reemplazar entero sin
+tocar una línea del servidor.
+
+### Autenticación en el apretón de manos
+
+Sin token válido no se entra a ninguna sala. La verificación corre como middleware del servidor
+de Socket.IO, **antes** de `handleConnection`, así que una conexión sin credenciales se rechaza
+antes de existir. No es una convención que alguien tiene que respetar: no hay un momento en el
+que un socket anónimo esté adentro.
+
+El cliente lo manda en el apretón de manos:
+
+```ts
+io(url, { auth: { token: accessToken } });
+```
+
+El socket **no hereda la autorización del REST**. Son dos superficies de ataque distintas, y un
+mensaje que llega por WebSocket no pasó por ningún guard de HTTP.
+
+### El contrato de eventos
+
+Una sala por batalla, con los dos participantes y nadie más.
+
+| Del cliente | Qué hace |
+| --- | --- |
+| `battle:join` | Entra a la sala y devuelve el estado completo desde la base |
+| `battle:action` | Declara la acción del turno y abre la ventana de reacción |
+| `battle:reaction` | Responde una ventana abierta, o la declina con `skillCode: null` |
+
+| Del servidor | Cuándo |
+| --- | --- |
+| `battle:state` | Al entrar o reconectar: estado completo, historial y ventana abierta si la hay |
+| `battle:reaction_window` | Se abrió una ventana, con su plazo y las habilidades aplicables |
+| `battle:turn_resolved` | El turno se resolvió, con las tiradas y el daño |
+| `battle:round_start` | Arranca la ronda siguiente |
+| `battle:opponent_left` | El rival se desconectó, con su plazo de abandono |
+| `battle:ended` | La batalla terminó, por vida en cero o por abandono |
+| `battle:error` | Un mensaje fue rechazado, con el motivo |
+
+Una ronda completa, de punta a punta:
+
+```mermaid
+sequenceDiagram
+    participant A as Jugador activo
+    participant S as Servidor
+    participant D as Defensor
+
+    A->>S: battle:action (POWER_STRIKE)
+    Note over S: Siete validaciones<br/>y se persiste el plazo
+    S-->>D: battle:reaction_window (plazo y aplicables)
+    D->>S: battle:reaction (PARRY)
+    Note over S: Reclamo atómico, motor,<br/>y turno más combatientes más condiciones<br/>en una sola transacción
+    S-->>A: battle:turn_resolved
+    S-->>D: battle:turn_resolved
+    S-->>A: battle:round_start
+    S-->>D: battle:round_start
+```
+
+Los dos clientes reciben el **mismo** objeto: el resultado se calcula una vez y se transmite,
+nunca se calcula dos veces.
+
+### Las siete validaciones
+
+Se aplican en **cada mensaje**, releídas desde la base. Estar dentro de una sala de Socket.IO
+no es un permiso: entraste hace veinte minutos, y nada garantiza que la batalla siga viva ni que
+siga siendo tu turno.
+
+| | Pregunta | Qué frena |
+| --- | --- | --- |
+| **V1** | ¿Sos participante? | Enumeración: alguien probando identificadores |
+| **V2** | ¿El estado admite este mensaje? | Jugar una batalla terminada o que no empezó |
+| **V3** | ¿Es tu turno, o hay ventana para vos? | Jugar fuera de turno, declarar dos veces, reaccionar a tu propio ataque |
+| **V4** | ¿La habilidad está en tu kit congelado? | Declarar algo que no tenés |
+| **V5** | ¿Es del tipo correcto? | Usar una acción como reacción |
+| **V6** | ¿Tenés la reacción disponible? | Reaccionar dos veces en una ronda |
+| **V7** | ¿Ese casillero ya está escrito? | Reenvíos y escrituras duplicadas |
+
+Tres cosas que no se ven en la tabla y son lo que hace que esto funcione:
+
+**El orden es carga estructural.** Se devuelve la **primera** negativa y se corta. Por eso V1 va
+primero: un extraño recibe `NOT_FOUND` con el mismo mensaje, byte por byte, que devuelve el REST
+para una batalla inexistente. Si llegara a V2, el mensaje de estado equivocado le confirmaría que
+la batalla existe. El orden **es** la política de privacidad.
+
+**Se declaran una sola vez.** Viven en un array `CHECKS` y el handler no elige cuáles corren: a
+qué mensajes aplica cada una es un dato, no un `if`. Un handler nuevo no puede saltearse una
+validación por olvido. Y hay una guarda de completitud que se pone roja si alguien agrega o borra
+una.
+
+**Nada se guarda entre mensajes.** El contexto se arma por mensaje y se tira. Que la sala no
+pueda sustituir a la validación no es una regla que alguien tiene que recordar: es que no existe
+estado cacheado en el cual confiar.
+
+### La ventana de reacción
+
+El plazo vive **en una columna de la base**, y el `setTimeout` en memoria es solo comodidad.
+
+No es purismo. El servicio gratuito de Render se apaga a los 15 minutos sin tráfico. Un timer que
+vive únicamente en memoria muere con el proceso y deja ese turno colgado **para siempre**, sin
+nadie que lo cierre. Con el plazo persistido, el próximo mensaje de cualquiera de los dos lo
+resuelve, aunque hayan pasado tres días.
+
+```mermaid
+flowchart TD
+    A["Se declara la acción"] --> B["Se persisten plazo y habilidad<br/>en la fila de la batalla"]
+    B --> C["setTimeout armado<br/>solo comodidad"]
+    B --> D["Camino perezoso<br/>lo que sostiene la carga"]
+    C --> E{"Reclamo atómico<br/>UPDATE ... WHERE plazo IS NOT NULL"}
+    D --> E
+    F["Llega la reacción"] --> E
+    E -- "1 fila" --> G["Resuelve por el motor<br/>y persiste el turno"]
+    E -- "0 filas" --> H["Relee el resultado ya escrito<br/>sin tirar un solo dado"]
+```
+
+Los tres caminos llegan al **mismo** resolvedor. No hay una segunda forma de terminar un turno.
+
+Y el reclamo atómico no es adorno: el índice único `(batalla, ronda, secuencia)` ordena las
+**escrituras**, no el **trabajo**. Como resolver un turno consume aleatoriedad, dos competidores
+tirarían los dados *antes* de que a alguno le falle la escritura, y saldrían dos resultados
+distintos con uno descartado. El reclamo los serializa en el lock de la fila: el perdedor
+matchea cero filas y se va sin tirar nada. El índice único queda abajo, como red para un
+reintento posterior al commit.
+
+Al vencer el plazo, **la reacción se conserva**. Y eso no está custodiado por tres condiciones
+especiales: sale de una sola regla — se gastó solo si el registro de reacción tiene habilidad.
+De ahí caen solos los tres casos: plazo vencido, declinación explícita y reacción ignorada.
+
+### Reconexión
+
+`battle:join` devuelve el estado completo **desde la base**: estado, ronda, jugador activo, los
+dos bloques de atributos congelados, las condiciones activas, el historial de turnos ordenado, y
+la ventana abierta con lo que le queda de plazo.
+
+Por eso el criterio de terminado de la fase es el que es: dos clientes pelean de punta a punta, y
+desconectar y reconectar a uno recupera el combate en el punto exacto. El test que lo prueba usa
+un socket **nuevo** y verifica que vuelva el mismo plazo con el tiempo restante recalculado. Con
+el estado en memoria, ese valor no podría sobrevivir a un cliente distinto.
+
+### Cierre
+
+Dos caminos, los dos terminan en `FINISHED` con ganador y fecha:
+
+- **Vida en cero.** El motor ya lo informa al resolver el turno.
+- **Abandono.** Se registra la desconexión con un plazo de 2 minutos y se evalúa cuando el
+  sobreviviente vuelve a hacer algo.
+
+El cierre **no** es una fila más de la tabla de transiciones. Tiene su propio tipo de arista, y
+el motivo es de seguridad: la columna `entitled` dice qué **jugador** puede mover la pieza, y
+para una decisión que toma el servidor no existe ningún valor honesto. Poner "cualquiera de los
+dos" habilitaría que un jugador que está perdiendo cierre su propia batalla.
+
+Limitación aceptada y escrita: si los dos jugadores desaparecen para siempre, esa batalla queda
+`IN_PROGRESS` hasta que alguno vuelva. El cierre se evalúa de forma perezosa y no hay ningún
+barrido de fondo, que es coherente con una sola instancia que puede dormirse.
 
 ---
 
@@ -277,6 +456,16 @@ El acceso a recursos ajenos responde `404` y no `403`, para no confirmar qué ex
 | [`docs/design/combat-engine.md`](./docs/design/combat-engine.md) | Motor de combate: guía de lectura, reglas y tubería |
 | [`docs/design/implementation-plan.md`](./docs/design/implementation-plan.md) | Plan de fases y calendario |
 | [`docs/design/git-workflow.md`](./docs/design/git-workflow.md) | Ramas, commits e integración |
+
+Las capacidades se especifican con desarrollo guiado por especificación. Ocho especificaciones
+vivas en [`openspec/specs/`](./openspec/specs): cuatro del motor de combate y cuatro del tiempo
+real. Cada requisito está escrito con Dado/Cuando/Entonces y verificado contra la
+implementación antes de archivar el cambio.
+
+| Cambio archivado | Qué cubre |
+| --- | --- |
+| [`add-combat-engine`](./openspec/changes/archive/2026-08-31-add-combat-engine) | Fase 3. 21 requisitos, 53 escenarios |
+| [`add-realtime-battle`](./openspec/changes/archive/2026-09-01-add-realtime-battle) | Fase 6. 36 requisitos, 52 escenarios |
 
 ---
 
