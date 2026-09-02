@@ -294,28 +294,28 @@ environment; every PR is opened by hand at
 
 ## Slice 7 — `feat/ws-battle-recovery` (base: slice 6)
 
-- [ ] 7.1 RED: extend `battle-session.service.spec.ts` — full `battle:join` state assembly:
+- [x] 7.1 RED: extend `battle-session.service.spec.ts` — full `battle:join` state assembly:
       status, `currentRound`, `activeUserId`, both frozen stat blocks, active conditions,
       `BattleTurn` history ordered by round/sequence, open window with `remainingMs` when
       present, absent when not. `test(ws): cover full reconnect state assembly`
-- [ ] 7.2 Impl: `src/ws/battle-session.service.ts` — complete `assembleState()` (extends
+- [x] 7.2 Impl: `src/ws/battle-session.service.ts` — complete `assembleState()` (extends
       slice 3's partial version). `feat(ws): restore battle state on reconnect`
-- [ ] 7.3 RED: extend `battle.gateway.spec.ts` — `handleDisconnect` writes
+- [x] 7.3 RED: extend `battle.gateway.spec.ts` — `handleDisconnect` writes
       `disconnectedUserId`/`disconnectDeadline = now + 2min` and emits `battle:opponent_left`;
       a reconnecting `battle:join` before the deadline clears the disconnect columns and does
       not alter any open reaction window's deadline. `test(ws): cover disconnect notification
       and reconnect clearing`
-- [ ] 7.4 Impl: `src/ws/battle.gateway.ts` — `handleDisconnect`; `battle:join` clears disconnect
+- [x] 7.4 Impl: `src/ws/battle.gateway.ts` — `handleDisconnect`; `battle:join` clears disconnect
       state on rejoin. Folded into 7.2's commit.
-- [ ] 7.5 RED: extend `battle-session.service.spec.ts` — `settleOverdue()` abandonment branch: a
+- [x] 7.5 RED: extend `battle-session.service.spec.ts` — `settleOverdue()` abandonment branch: a
       passed `disconnectDeadline` with no reconnect closes the battle via
       `closeBattle(survivorId, 'ABANDONMENT')` before the surviving participant's message is
       processed; both clients receive `battle:ended`; a battle abandoned by both stays
       `IN_PROGRESS` until either acts. `test(ws): cover lazy abandonment closure`
-- [ ] 7.6 Impl: `src/ws/battle-session.service.ts` — `settleOverdue()` abandonment branch.
+- [x] 7.6 Impl: `src/ws/battle-session.service.ts` — `settleOverdue()` abandonment branch.
       `feat(ws): close battle on abandonment deadline`
-- [ ] 7.7 Impl: `src/ws/battle-events.ts` — `battle:opponent_left` payload. Folded into 7.6.
-- [ ] 7.8 E2E: extend `battle-realtime.e2e-spec.ts` — disconnect one client mid-window,
+- [x] 7.7 Impl: `src/ws/battle-events.ts` — `battle:opponent_left` payload. Folded into 7.6.
+- [x] 7.8 E2E: extend `battle-realtime.e2e-spec.ts` — disconnect one client mid-window,
       reconnect with a new socket before the deadline, assert the same unchanged deadline and
       recomputed `remainingMs`; backdate `disconnectDeadline` past 2 minutes via
       `prisma.battle.update(...)`, assert the survivor's next message closes the battle with
@@ -324,7 +324,7 @@ environment; every PR is opened by hand at
       before `User` rows (`BattleCombatant`/`ActiveCondition`/`BattleTurn` cascade from
       `Battle`; `Battle` holds participants with `ON DELETE RESTRICT`).
       `test(ws): cover reconnect mid-window and abandonment closure end to end`
-- [ ] 7.9 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`; confirm
+- [x] 7.9 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`; confirm
       `dist/main.js` at the root. Full e2e suite green. Measure diff against slice 6. Open
       PR 7; retarget base to `feat/ws-reaction-timeout`.
 
