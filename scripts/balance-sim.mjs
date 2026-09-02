@@ -79,8 +79,8 @@ function makeRandom(seed) {
 const SKILLS = {
   POWER_STRIKE: { code: 'POWER_STRIKE', type: 'ACTION', requiredAttribute: 'STRENGTH', damageDice: '1d8', appliesCondition: null, conditionRounds: null, cost: 4 },
   RECKLESS_BLOW: { code: 'RECKLESS_BLOW', type: 'ACTION', requiredAttribute: 'STRENGTH', damageDice: '1d10', appliesCondition: null, conditionRounds: null, cost: 5 },
-  PRECISE_SHOT: { code: 'PRECISE_SHOT', type: 'ACTION', requiredAttribute: 'DEXTERITY', damageDice: '1d10', appliesCondition: null, conditionRounds: null, cost: 5 },
-  FIREBALL: { code: 'FIREBALL', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '2d6', appliesCondition: null, conditionRounds: null, cost: 5 },
+  PRECISE_SHOT: { code: 'PRECISE_SHOT', type: 'ACTION', requiredAttribute: 'DEXTERITY', damageDice: '1d8', appliesCondition: null, conditionRounds: null, cost: 4 },
+  FIREBALL: { code: 'FIREBALL', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '1d12', appliesCondition: null, conditionRounds: null, cost: 5 },
   VENOM_BOLT: { code: 'VENOM_BOLT', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '1d4', appliesCondition: 'POISONED', conditionRounds: 3, cost: 4 },
   MIND_SPIKE: { code: 'MIND_SPIKE', type: 'ACTION', requiredAttribute: 'MAGIC', damageDice: '1d10', appliesCondition: 'STUNNED', conditionRounds: 1, cost: 7 },
   BRACE: { code: 'BRACE', type: 'REACTION', requiredAttribute: 'CONSTITUTION', damageDice: null, appliesCondition: null, conditionRounds: null, cost: 3 },
@@ -160,6 +160,7 @@ const ARCHETYPES = [
   },
   {
     name: 'duelist',
+    diagnostic: true,
     spread: { strength: 12, magic: 8, dexterity: 15, constitution: 14 },
     kit: ['PRECISE_SHOT', 'POWER_STRIKE', 'DODGE', 'PARRY'],
   },
@@ -170,6 +171,7 @@ const ARCHETYPES = [
   },
   {
     name: 'hybrid',
+    diagnostic: true,
     spread: { strength: 13, magic: 13, dexterity: 13, constitution: 12 },
     kit: ['POWER_STRIKE', 'FIREBALL', 'PARRY', 'DODGE'],
   },
@@ -182,10 +184,20 @@ const ARCHETYPES = [
     spread: { strength: 12, magic: 8, dexterity: 15, constitution: 14 },
     kit: ['PRECISE_SHOT', 'POWER_STRIKE', 'DODGE', 'BRACE'],
   },
+  // The same hybrid, carrying BRACE instead of DODGE. `overview.md` says on
+  // purpose that an agile build eats spells, so a dexterity build losing to
+  // magic is the design working. It asks the same question duelistB asked:
+  // is the 99% matchup the rules, or a kit with no answer to a spell in it?
+  {
+    name: 'hybridB',
+    spread: { strength: 13, magic: 13, dexterity: 13, constitution: 12 },
+    kit: ['POWER_STRIKE', 'FIREBALL', 'PARRY', 'BRACE'],
+  },
   // A brute that spends nothing on constitution, to price what RECKLESS_BLOW
   // is worth on its own.
   {
     name: 'gambler',
+    diagnostic: true,
     spread: { strength: 15, magic: 8, dexterity: 14, constitution: 10 },
     kit: ['POWER_STRIKE', 'RECKLESS_BLOW', 'PARRY', 'BRACE'],
   },
@@ -301,22 +313,81 @@ const chooseAction = (archetype, self, defender) =>
         expectedDamage(b, self, defender) - expectedDamage(a, self, defender),
     )[0];
 
-const chooseReaction = (archetype, actionSkill, combatant) => {
+/**
+ * What a reaction is worth against the blow actually incoming, in hit points
+ * either not taken or handed back. Reading the effect off `REACTION_TABLE`
+ * rather than off the skill's name means a change to the engine's table
+ * shows up here without this file being edited.
+ *
+ * Picking the FIRST applicable reaction instead would let kit order decide
+ * the fight: a build listing PARRY before BRACE would play differently from
+ * the same build listing them the other way round, and none of that is the
+ * game's doing. The same class of mistake was already found once in the
+ * action policy, so it is worth spending a few lines to not repeat it.
+ */
+function reactionValue(behavior, incoming, self, attacker, actionSkill) {
+  if (behavior.counter) {
+    // A counter prevents nothing; it is worth the damage it returns, and
+    // only when its trigger matches. Both triggers fire about half the time
+    // at these hit rates, so the expectation is halved rather than modelled
+    // per-outcome.
+    return (
+      (averageOf('1d6') + modifier(self[behavior.counter.bonusFrom.toLowerCase()])) *
+      0.5
+    );
+  }
+
+  if (behavior.mitigation?.kind === 'HALVE') {
+    return incoming * 0.5;
+  }
+
+  if (behavior.mitigation?.kind === 'FLAT') {
+    const flat = Math.max(
+      behavior.mitigation.minimum ?? 0,
+      modifier(self[behavior.mitigation.from.toLowerCase()]),
+    );
+    return Math.min(flat, incoming);
+  }
+
+  if (behavior.defense?.target === 'ARMOR_CLASS') {
+    const bonus = modifier(self[behavior.defense.bonusFrom.toLowerCase()]);
+    const attack = modifier(attacker[actionSkill.requiredAttribute.toLowerCase()]);
+    const before = atLeast(self.armorClass - attack);
+    const after = atLeast(self.armorClass + bonus - attack);
+    return incoming * (1 - after / Math.max(before, 0.05));
+  }
+
+  if (behavior.defense?.target === 'SAVE_ROLL') {
+    // A better save turns full damage into half damage more often; the
+    // ceiling of that is half the incoming blow.
+    return incoming * 0.25;
+  }
+
+  return 0;
+}
+
+const chooseReaction = (archetype, actionSkill, combatant, attacker) => {
   if (!combatant.reactionAvailable) {
     return null;
   }
 
   const resolution = actionResolutionOf(actionSkill);
+  const incoming = expectedDamage(actionSkill, attacker, combatant);
 
-  return (
-    archetype.kit
-      .map((code) => SKILLS[code])
-      .filter((skill) => skill.type === 'REACTION')
-      .find((skill) => {
-        const behavior = engine.REACTION_TABLE[skill.code];
-        return behavior && engine.isApplicable(behavior, resolution);
-      }) ?? null
-  );
+  const ranked = archetype.kit
+    .map((code) => SKILLS[code])
+    .filter((skill) => skill.type === 'REACTION')
+    .map((skill) => ({ skill, behavior: engine.REACTION_TABLE[skill.code] }))
+    .filter(
+      ({ behavior }) => behavior && engine.isApplicable(behavior, resolution),
+    )
+    .sort(
+      (a, b) =>
+        reactionValue(b.behavior, incoming, combatant, attacker, actionSkill) -
+        reactionValue(a.behavior, incoming, combatant, attacker, actionSkill),
+    );
+
+  return ranked[0]?.skill ?? null;
 };
 
 /** One duel. Returns the winner's name, or null on a stalemate. */
@@ -348,6 +419,7 @@ function duel(archetypeA, archetypeB, random) {
       defenderArch,
       actionSkill,
       actorIsA ? b : a,
+      actorIsA ? a : b,
     );
 
     const result = resolveTurn({
@@ -478,9 +550,26 @@ function main() {
     }`,
   );
 
-  const spread = overall[0].rate - overall[overall.length - 1].rate;
+  // Three of these archetypes are deliberately flawed diagnostics: two carry
+  // no answer to a spell, one spent nothing on constitution. They exist to
+  // price a mistake, and a game where a mistake costs nothing is a worse
+  // game, not a better one. Measuring balance across them would reward
+  // flattening the difference between playing well and playing badly, so the
+  // headline number is the spread across the WELL-FORMED builds only.
+  const sound = overall.filter(
+    (entry) => !ARCHETYPES.find((a) => a.name === entry.name).diagnostic,
+  );
+  const spread = sound[0].rate - sound[sound.length - 1].rate;
+
   console.log(
-    `  spread between best and worst archetype: ${spread.toFixed(1)} points\n`,
+    `  spread across well-formed builds: ${spread.toFixed(1)} points  (${sound
+      .map((entry) => entry.name)
+      .join(', ')})`,
+  );
+  console.log(
+    `  spread including the deliberately flawed ones: ${(
+      overall[0].rate - overall[overall.length - 1].rate
+    ).toFixed(1)} points\n`,
   );
 
   // The extremes are what §2.3 and §4.7 are actually about: a matchup nobody
