@@ -113,32 +113,6 @@ pnpm db:studio      # explorador visual de la base
 
 `db:migrate` solo va en desarrollo: puede resetear la base. En producción corre `db:deploy`, que aplica lo que ya existe y nunca genera migraciones nuevas.
 
-### Dos guiones de diagnóstico
-
-Viven en [`scripts/`](./scripts) y no son parte de la aplicación. Están en `.mjs` a
-propósito: un `.ts` fuera de `src/` que entre en el `tsconfig` del build hace que Nest
-emita `dist/src/main.js` y rompe el arranque en Render.
-
-```bash
-# Recorre TODO el contrato de WebSocket contra un servidor vivo, imprimiendo lo que
-# sale por el cable. Sale con código distinto de cero si el servidor no coincide.
-node scripts/ws-scenarios.mjs
-node --env-file=.env scripts/ws-scenarios.mjs --slow   # suma el token vencido y la ventana de 15s
-API_URL=https://build-arena-api.onrender.com node scripts/ws-scenarios.mjs
-
-# Mide el balance entre arquetipos manejando el motor compilado de dist/.
-pnpm build && node scripts/balance-sim.mjs
-node scripts/balance-sim.mjs --duels 8000 --seed 7
-node scripts/balance-sim.mjs --patch '{"FIREBALL":{"damageDice":"1d10"}}'
-```
-
-El primero cubre 32 escenarios: los cuatro rechazos del apretón de manos, las siete
-validaciones por código de error, una ronda completa con su ventana de reacción, el
-rechazo explícito, la expiración, una caída con su recuperación desde la base, una
-batalla peleada hasta el final y el movimiento de rating que eso produce. Tres
-escenarios quedan marcados como **inalcanzables y no se falsean**: dos validaciones que
-un solo cliente no puede provocar y el plazo de abandono de dos minutos.
-
 ---
 
 ## Endpoints
@@ -528,60 +502,6 @@ exactamente la misma brecha que el endpoint de usuario evita con cuidado.
 El desempate es por nombre de usuario. Sin esa segunda clave, PostgreSQL devuelve las
 filas empatadas en el orden que quiera y dos jugadores con el mismo rating se
 intercambian entre recargas. **Un ranking que se baraja al refrescar no es un ranking.**
-
----
-
-## Balanceo
-
-Los valores del diseño estaban marcados como *"iniciales, sujetos a balanceo"*. Balancear
-a ojo no es balancear, así que [`scripts/balance-sim.mjs`](./scripts/balance-sim.mjs)
-maneja el motor **compilado** y mide.
-
-Ocho arquetipos, todos con builds legales bajo los mismos presupuestos, miles de duelos
-por cruce, y un generador sembrado para que dos catálogos candidatos se comparen sobre el
-**mismo hilo de suerte** en lugar de sobre dos climas distintos.
-
-Lo que encontró, en el catálogo original:
-
-| Arquetipo | Antes | Después |
-| --- | --- | --- |
-| Bruto | 79.6 % | 58.5 % |
-| Mago | 70.9 % | 62.1 % |
-| Tanque | 21.1 % | 40.2 % |
-| Duelista con respuesta a magia | 21.2 % | 40.5 % |
-| **Diferencia entre la mejor y la peor** | **58.5 puntos** | **21.9 puntos** |
-
-Tres habilidades estaban mal precificadas, y el arreglo fueron **tres dados en el
-catálogo sembrado, sin una línea de lógica**:
-
-| Habilidad | Antes | Después | Por qué |
-| --- | --- | --- | --- |
-| `RECKLESS_BLOW` | 2d6, costo 6 | 1d10, costo 5 | Era la mejor acción del juego por lejos. Un bruto que tiró **toda** su constitución —30 de vida contra 40— igual le ganaba 96.7 % al tanque, la build que gastó todo en sobrevivir: eso no lo explicaba la vida, lo explicaba esta habilidad |
-| `PRECISE_SHOT` | 1d6, costo 5 | 1d8, costo 4 | Estaba estrictamente dominada por `POWER_STRIKE` (1d8 por 4): menos dado y más cara. Ahora es su espejo exacto, y solo cambia el atributo que la desbloquea |
-| `FIREBALL` | 2d6 | 1d12 | La magia **nunca falla**: una salvación exitosa solo parte el daño al medio. Sumado a un promedio de 7 contra 4.5 del físico, era daño garantizado contra daño con 45 % de fallo |
-
-Y aparece el piedra-papel-tijera que el diseño pedía y no existía:
-
-```
-duelista  ->  bruto     82.4 %
-bruto     ->  mago      80.6 %
-mago      ->  duelista  83.4 %
-```
-
-**La herramienta se equivocó dos veces antes de acertar**, y las dos quedaron corregidas
-en el guión con su motivo escrito:
-
-1. La política de acción elegía por promedio del dado e ignoraba el modificador de
-   atributo y la probabilidad de impacto. Hacía que toda build de destreza se jugara
-   sola mal.
-2. La política de reacción elegía la primera aplicable **en orden de kit**, no la mejor.
-   Toda build de destreza tiraba a la basura su mejor reacción: corregirlo movió al
-   duelista treinta puntos de golpe.
-
-Una simulación de juego malo es evidencia sobre la política, no sobre los números. Por eso
-el número titular es la diferencia entre las builds **bien armadas**: tres de los ocho
-arquetipos son diagnósticos deliberadamente defectuosos, y medir sobre ellos premiaría
-aplanar la distancia entre jugar bien y jugar mal.
 
 ---
 
