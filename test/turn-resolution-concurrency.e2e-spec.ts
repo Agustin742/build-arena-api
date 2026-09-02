@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { BattleStatus } from '../src/generated/prisma/enums';
 import { SequenceRandomSource } from '../src/combat';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { RatingService } from '../src/rating/rating.service';
 import { TurnResolutionService } from '../src/ws/turn-resolution.service';
 
 /**
@@ -102,6 +103,7 @@ describe('TurnResolutionService — concurrent resolve() (part C, real database)
     // producing a second, different result.
     const resolver = new TurnResolutionService(
       prisma,
+      new RatingService(),
       new SequenceRandomSource([15, 5, 15, 5, 15, 5, 15, 5]),
     );
 

@@ -17,6 +17,8 @@ import type {
 } from '../generated/prisma/client';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { RatingService } from '../rating/rating.service';
+import type { RatingOutcome } from '../rating/rating.service';
 
 const UNIQUE_VIOLATION = 'P2002'; // beside the existing FOREIGN_KEY_VIOLATION = 'P2003'
 
@@ -35,6 +37,12 @@ export type TurnResolutionOutcome = {
   // fresh resolve, or the persisted columns on a re-emit; never re-derived.
   readonly winnerId: string | null;
   readonly endedAt: Date | null;
+  // Set only on the resolve that actually closed the battle. Null on a
+  // re-emit for the same reason `events` is empty there: the deltas were
+  // spent in a transaction that already committed, and re-deriving them
+  // from the players' current ratings would report a number that never
+  // happened.
+  readonly rating: RatingOutcome | null;
 };
 
 /** `startRound`'s result, persisted and handed back to the caller for `battle:round_start`. */
@@ -88,6 +96,7 @@ const isUniqueViolation = (error: unknown): boolean =>
 export class TurnResolutionService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly rating: RatingService,
     @Inject(RANDOM_SOURCE) private readonly random: RandomSource,
   ) {}
 
@@ -128,6 +137,7 @@ export class TurnResolutionService {
             activeUserId: true,
             status: true,
             challengerId: true,
+            ranked: true,
             opponentId: true,
             combatants: { include: { conditions: true } },
           },
@@ -216,6 +226,7 @@ export class TurnResolutionService {
           events: resolution.events,
           defeatedId: resolution.defeatedId,
           winnerId: advance.winnerId,
+          rating: advance.rating,
           endedAt: advance.endedAt,
         };
       });
@@ -311,17 +322,26 @@ export class TurnResolutionService {
     tx: Prisma.TransactionClient,
     battleId: string,
     round: number,
-    battle: { status: string; challengerId: string; opponentId: string },
+    battle: {
+      status: string;
+      challengerId: string;
+      opponentId: string;
+      ranked: boolean;
+    },
     actor: Combatant,
     defender: Combatant,
     defeatedId: string | null,
-  ): Promise<{ winnerId: string | null; endedAt: Date | null }> {
+  ): Promise<{
+    winnerId: string | null;
+    endedAt: Date | null;
+    rating: RatingOutcome | null;
+  }> {
     if (!defeatedId) {
       await tx.battle.update({
         where: { id: battleId },
         data: { currentRound: round + 1, activeUserId: defender.userId },
       });
-      return { winnerId: null, endedAt: null };
+      return { winnerId: null, endedAt: null, rating: null };
     }
 
     const winner = defeatedId === actor.id ? defender : actor;
@@ -348,7 +368,20 @@ export class TurnResolutionService {
       data: { status: outcome.to, winnerId: outcome.winnerId, endedAt },
     });
 
-    return { winnerId: outcome.winnerId, endedAt };
+    // Inside the same transaction on purpose: nothing ever re-closes a
+    // finished battle, so a commit that dropped the rating write would be
+    // both silent and unrecoverable.
+    const rating = await this.rating.settle(
+      tx,
+      {
+        challengerId: battle.challengerId,
+        opponentId: battle.opponentId,
+        ranked: battle.ranked,
+      },
+      outcome.winnerId,
+    );
+
+    return { winnerId: outcome.winnerId, endedAt, rating };
   }
 
   /**
@@ -438,6 +471,7 @@ export class TurnResolutionService {
       actor,
       defender,
       events: [],
+      rating: null,
       defeatedId: defeated?.id ?? null,
       winnerId: battle.winnerId,
       endedAt: battle.endedAt,

@@ -90,6 +90,12 @@ const toEndedPayload = (outcome: TurnResolutionOutcome): BattleEndedPayload => {
     winnerId: outcome.winnerId,
     reason: 'DEFEAT',
     endedAt: outcome.endedAt.toISOString(),
+    // `rating` is null only on an idempotent re-emit, where the deltas were
+    // spent by a transaction that already committed. Reporting the ratings
+    // as unmoved would be a lie; reporting an empty list says plainly that
+    // this emission is not the one that moved them.
+    ranked: outcome.rating?.ranked ?? false,
+    ratingChanges: [...(outcome.rating?.changes ?? [])],
   };
 };
 
@@ -140,6 +146,8 @@ export class BattleGateway
         winnerId: outcome.winnerId,
         reason: 'ABANDONMENT',
         endedAt: outcome.endedAt.toISOString(),
+        ranked: outcome.rating.ranked,
+        ratingChanges: [...outcome.rating.changes],
       });
       return;
     }

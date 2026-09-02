@@ -4,6 +4,7 @@ import { Prisma } from '../generated/prisma/client';
 import { ConditionType } from '../generated/prisma/enums';
 import { SequenceRandomSource } from '../combat';
 import { PrismaService } from '../prisma/prisma.service';
+import { RatingService } from '../rating/rating.service';
 import { TurnResolutionService } from './turn-resolution.service';
 
 const BATTLE_ID = '33333333-0000-4000-8000-000000000003';
@@ -85,6 +86,8 @@ describe('TurnResolutionService', () => {
   const upsertCondition = jest.fn();
   const updateCondition = jest.fn();
   const deleteCondition = jest.fn();
+  const findManyUser = jest.fn();
+  const updateUser = jest.fn();
   const updateBattle = jest.fn();
 
   const tx = {
@@ -94,6 +97,7 @@ describe('TurnResolutionService', () => {
       update: updateBattle,
     },
     skill: { findUniqueOrThrow: findUniqueOrThrowSkill },
+    user: { findMany: findManyUser, update: updateUser },
     battleTurn: { createMany: createManyTurn },
     battleCombatant: { update: updateCombatant },
     activeCondition: {
@@ -127,9 +131,15 @@ describe('TurnResolutionService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     updateBattle.mockResolvedValue(undefined);
+    findManyUser.mockResolvedValue([
+      { id: ACTOR_USER_ID, rating: 1200 },
+      { id: DEFENDER_USER_ID, rating: 1200 },
+    ]);
+    updateUser.mockResolvedValue(undefined);
     updateCombatant.mockResolvedValue(undefined);
     service = new TurnResolutionService(
       prisma,
+      new RatingService(),
       new SequenceRandomSource([15, 5]),
     );
   });
@@ -141,6 +151,7 @@ describe('TurnResolutionService', () => {
       status: 'IN_PROGRESS',
       challengerId: ACTOR_USER_ID,
       opponentId: DEFENDER_USER_ID,
+      ranked: true,
       combatants: [
         combatantRow(ACTOR_ID, ACTOR_USER_ID),
         combatantRow(DEFENDER_ID, DEFENDER_USER_ID),
@@ -363,6 +374,7 @@ describe('TurnResolutionService', () => {
         status: 'IN_PROGRESS',
         challengerId: ACTOR_USER_ID,
         opponentId: DEFENDER_USER_ID,
+        ranked: true,
         combatants: [
           combatantRow(ACTOR_ID, ACTOR_USER_ID),
           combatantRow(DEFENDER_ID, DEFENDER_USER_ID, { currentHp: 2 }),
@@ -388,6 +400,18 @@ describe('TurnResolutionService', () => {
         },
       });
       expect(result.winnerId).toBe(ACTOR_USER_ID);
+      // The rating write rides the same transaction as the closure: nothing
+      // ever re-closes a finished battle, so a commit without it would lose
+      // the points silently.
+      expect(updateUser).toHaveBeenCalledTimes(2);
+      expect(result.rating?.ranked).toBe(true);
+      expect(
+        result.rating?.changes.find((c) => c.userId === ACTOR_USER_ID)?.change,
+      ).toBeGreaterThan(0);
+      expect(
+        result.rating?.changes.find((c) => c.userId === DEFENDER_USER_ID)
+          ?.change,
+      ).toBeLessThan(0);
       expect(result.endedAt).toBeInstanceOf(Date);
     });
   });

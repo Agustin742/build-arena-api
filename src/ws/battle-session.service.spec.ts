@@ -2,6 +2,7 @@ import { BattleStatus } from '../generated/prisma/enums';
 import type { BattleSessionRow } from '../battle/battle.mapper';
 import type { BattleService } from '../battle/battle.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import { RatingService } from '../rating/rating.service';
 import type { SessionContext } from './rules/message-checks';
 import { BattleSessionService } from './battle-session.service';
 import type {
@@ -85,19 +86,31 @@ describe('BattleSessionService', () => {
   const skillFindUniqueOrThrow = jest.fn();
   const resolve = jest.fn();
   const turnResolution = { resolve } as unknown as TurnResolutionService;
+  const userFindMany = jest.fn();
+  const userUpdate = jest.fn();
+  // `closeIfAbandoned` closes and settles rating in one transaction, so the
+  // mock hands the callback a client carrying both tables.
   const prisma = {
     battle: { update, findUnique },
     buildSkill: { findMany: buildSkillFindMany },
     skill: { findUniqueOrThrow: skillFindUniqueOrThrow },
+    user: { findMany: userFindMany, update: userUpdate },
+    $transaction: (run: (tx: unknown) => unknown) => run(prisma),
   } as unknown as PrismaService;
   const service = new BattleSessionService(
     battleService,
     prisma,
     turnResolution,
+    new RatingService(),
   );
 
   beforeEach(() => {
     jest.clearAllMocks();
+    userFindMany.mockResolvedValue([
+      { id: ME, rating: 1200 },
+      { id: RIVAL, rating: 1200 },
+    ]);
+    userUpdate.mockResolvedValue(undefined);
   });
 
   describe('load', () => {
@@ -398,6 +411,7 @@ describe('BattleSessionService', () => {
       defeatedId: null,
       winnerId: null,
       endedAt: null,
+      rating: null,
     };
 
     it('does nothing when the battle has no pending action', async () => {
@@ -451,6 +465,7 @@ describe('BattleSessionService', () => {
       challengerId: ME,
       opponentId: RIVAL,
       currentRound: 1,
+      ranked: true,
       pendingActionSkillCode: null,
       reactionDeadline: null,
       disconnectedUserId: null,
@@ -485,6 +500,7 @@ describe('BattleSessionService', () => {
         kind: 'ABANDONED',
         winnerId: ME,
         endedAt: expect.any(Date) as Date,
+        rating: expect.objectContaining({ ranked: true }) as unknown,
       });
       expect(update).toHaveBeenCalledWith({
         where: { id: BATTLE_ID },
@@ -516,6 +532,7 @@ describe('BattleSessionService', () => {
         kind: 'ABANDONED',
         winnerId: RIVAL,
         endedAt: expect.any(Date) as Date,
+        rating: expect.objectContaining({ ranked: true }) as unknown,
       });
       expect(resolve).not.toHaveBeenCalled();
     });
