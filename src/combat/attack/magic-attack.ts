@@ -17,6 +17,8 @@ export type MagicAttackResult = {
   readonly difficulty: number;
   readonly rolls: readonly number[];
   readonly kept: number;
+  /** The defender's `d20 + mod(constitution) + wardBonus`. */
+  readonly total: number;
   readonly savePassed: boolean;
   readonly rawDamage: number;
 };
@@ -60,5 +62,5 @@ export const resolveMagicAttack = (
     ? rollDamage(random, skill.damageDice, 0, false)
     : 0;
 
-  return { difficulty, rolls, kept, savePassed, rawDamage };
+  return { difficulty, rolls, kept, total, savePassed, rawDamage };
 };

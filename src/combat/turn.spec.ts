@@ -168,6 +168,7 @@ describe('resolveTurn — steps 1 to 5', () => {
     const result = resolveTurn(input);
 
     expect(result.turns[0].hit).toBe(true);
+    expect(result.turns[0].attackTotal).toBe(14);
     expect(result.turns[0].targetValue).toBe(14);
   });
 
@@ -500,6 +501,7 @@ describe('resolveTurn — step 9 emission, STUNNED skipping, and bias wiring', (
     expect(result.turns[0].kind).toBe('ACTION');
     expect(result.turns[1].kind).toBe('REACTION');
     expect(result.turns[1].attackRoll).toBeNull();
+    expect(result.turns[1].attackTotal).toBeNull();
     expect(result.turns[1].targetValue).toBeNull();
     expect(result.turns[1].hit).toBeNull();
     expect(result.turns[1].skillCode).toBeNull();
@@ -524,6 +526,7 @@ describe('resolveTurn — step 9 emission, STUNNED skipping, and bias wiring', (
       kind: 'ACTION',
       skillCode: null,
       attackRoll: null,
+      attackTotal: null,
       targetValue: null,
       hit: null,
       critical: false,
@@ -801,5 +804,108 @@ describe('actionResolutionOf', () => {
 
   it('maps every other required attribute to PHYSICAL', () => {
     expect(actionResolutionOf(powerStrike)).toBe('PHYSICAL');
+  });
+});
+
+describe('TurnRecord roll contract — one meaning per field', () => {
+  // A physical attack whose raw die alone would miss but whose attribute
+  // modifier carries it over the armor class. This is the shape that made
+  // the old single `targetValue` field self-contradictory on the wire: it
+  // reported the attacker's own total as the number to beat, so a client
+  // rendered "rolled 10 against 12 — hit".
+  it('separates the physical roll, its total, and the armor class it had to beat', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(10),
+      rollDice: jest.fn().mockReturnValue(4),
+    };
+    const actor = buildCombatant({ id: 'actor-1', strength: 14 }); // mod +2
+    const defender = buildCombatant({ id: 'defender-1', armorClass: 11 });
+    const input = buildInput({ actor, defender, reaction: null, random });
+
+    const result = resolveTurn(input);
+
+    expect(result.turns[0].attackRoll).toBe(10);
+    expect(result.turns[0].attackTotal).toBe(12);
+    expect(result.turns[0].targetValue).toBe(11);
+    expect(result.turns[0].hit).toBe(true);
+  });
+
+  // Magic reads the same three fields off the DEFENDER's saving throw: the
+  // die, the die plus constitution and any ward bonus, and the difficulty
+  // the attacker imposed. `targetValue` keeps the one meaning it has in the
+  // physical row — the number that had to be beaten.
+  it('separates the save roll, its total, and the difficulty it had to beat', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(9),
+      rollDice: jest.fn().mockReturnValue(3),
+    };
+    const actor = buildCombatant({ id: 'actor-1', magic: 14 }); // difficulty 8 + 2 = 10
+    const defender = buildCombatant({ id: 'defender-1', constitution: 12 }); // mod +1
+    const input = buildInput({
+      actor,
+      defender,
+      action: { actorId: 'actor-1', skill: fireball },
+      reaction: null,
+      random,
+    });
+
+    const result = resolveTurn(input);
+
+    expect(result.turns[0].attackRoll).toBe(9);
+    expect(result.turns[0].attackTotal).toBe(10);
+    expect(result.turns[0].targetValue).toBe(10);
+    // total >= difficulty, so the save passed and the action did not land.
+    expect(result.turns[0].hit).toBe(false);
+  });
+
+  it('carries the same total on the ATTACK_ROLLED event it puts on the row', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(10),
+      rollDice: jest.fn().mockReturnValue(4),
+    };
+    const actor = buildCombatant({ id: 'actor-1', strength: 14 });
+    const defender = buildCombatant({ id: 'defender-1', armorClass: 11 });
+    const input = buildInput({ actor, defender, reaction: null, random });
+
+    const result = resolveTurn(input);
+
+    expect(result.events).toContainEqual({
+      type: 'ATTACK_ROLLED',
+      actorId: 'actor-1',
+      rolls: [10],
+      kept: 10,
+      total: 12,
+      targetValue: 11,
+      hit: true,
+      critical: false,
+    });
+  });
+
+  it('carries the save total on the SAVE_ROLLED event it puts on the row', () => {
+    const random: RandomSource = {
+      rollD20: jest.fn().mockReturnValue(9),
+      rollDice: jest.fn().mockReturnValue(3),
+    };
+    const actor = buildCombatant({ id: 'actor-1', magic: 14 });
+    const defender = buildCombatant({ id: 'defender-1', constitution: 12 });
+    const input = buildInput({
+      actor,
+      defender,
+      action: { actorId: 'actor-1', skill: fireball },
+      reaction: null,
+      random,
+    });
+
+    const result = resolveTurn(input);
+
+    expect(result.events).toContainEqual({
+      type: 'SAVE_ROLLED',
+      defenderId: 'defender-1',
+      rolls: [9],
+      kept: 9,
+      total: 10,
+      difficulty: 10,
+      passed: true,
+    });
   });
 });

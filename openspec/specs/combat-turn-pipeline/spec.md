@@ -82,3 +82,44 @@ same round's action.
 - GIVEN the attacker's action missed in step 2 (0 damage recorded)
 - WHEN RIPOSTE fires in step 7 and applies WEAKENED to the attacker in step 8
 - THEN the action's already-recorded result stays a miss with 0 damage, and WEAKENED only affects the attacker's next action, per R17
+
+### Requirement: Every Roll Field of a Turn Record Carries Exactly One Meaning
+
+A `TurnRecord`'s three roll fields MUST each mean the same thing regardless of
+whether the action resolved as PHYSICAL or MAGIC, so that a client can render
+any row without first inferring which resolution produced it:
+
+- `attackRoll` — the raw kept d20, before any modifier.
+- `attackTotal` — that roll plus its modifiers: the number actually achieved.
+- `targetValue` — the number that had to be beaten: the defender's effective
+  armor class on a physical action, the attacker's save difficulty on a magic
+  one.
+
+The engine MUST NOT put an achieved total in `targetValue`, because a client
+comparing `attackRoll` against `targetValue` would then read a hit as a miss.
+
+Magic inverts who rolls, not what the fields mean: on a magic action
+`attackRoll` and `attackTotal` describe the DEFENDER'S saving throw (R12,
+R13), and `targetValue` remains the number that throw had to beat.
+
+The `ATTACK_ROLLED` and `SAVE_ROLLED` events MUST carry the same `total`
+alongside their existing `kept`, so a consumer reading the event stream sees
+the same three numbers the persisted row does.
+
+#### Scenario: A physical roll that only its modifier carries over the armor class
+
+- GIVEN attacker strength mod +2 and defender armorClass 11
+- WHEN rollD20() returns 10
+- THEN the action row records `attackRoll: 10`, `attackTotal: 12`, `targetValue: 11`, and `hit: true`
+
+#### Scenario: A magic row reports the defender's save against the attacker's difficulty
+
+- GIVEN attacker magic mod +2 (difficulty 10) and defender constitution mod +1
+- WHEN the defender's save rollD20() returns 9
+- THEN the action row records `attackRoll: 9`, `attackTotal: 10`, `targetValue: 10`, and `hit: false`
+
+#### Scenario: A row with no roll behind it leaves all three fields null
+
+- GIVEN a REACTION row, or an action skipped because the actor is STUNNED
+- WHEN the record is emitted
+- THEN `attackRoll`, `attackTotal`, and `targetValue` are all null

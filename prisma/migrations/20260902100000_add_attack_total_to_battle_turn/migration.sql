@@ -1,0 +1,18 @@
+-- Splits the roll contract of a turn into one meaning per column.
+--
+-- Before this migration `targetValue` carried two opposite meanings: on a
+-- physical row it held the ATTACKER'S OWN TOTAL (kept d20 + attribute
+-- modifier), while on a magic row it held the DIFFICULTY the defender had
+-- to beat. A client rendering both from the same field showed rows that
+-- contradicted themselves ("rolled 10 against 12 — hit").
+--
+-- From here on:
+--   attackRoll  = the raw kept d20
+--   attackTotal = that roll plus its modifiers, i.e. what was achieved
+--   targetValue = the number that had to be beaten (armor class or difficulty)
+--
+-- Rows written before this migration keep the old semantics and are left
+-- untouched: they are history, not live state, and no battle in progress
+-- re-reads them for a decision. Their `attackTotal` stays NULL, which is
+-- how a reader tells an old row from a new one.
+ALTER TABLE "BattleTurn" ADD COLUMN "attackTotal" INTEGER;

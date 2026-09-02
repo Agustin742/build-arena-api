@@ -64,7 +64,16 @@ export type TurnRecord = {
   readonly actorId: string;
   readonly kind: SkillKind;
   readonly skillCode: string | null;
+  /**
+   * The raw kept d20. On a PHYSICAL action it is the attacker's attack
+   * roll; on a MAGIC one it is the DEFENDER'S saving throw, because magic
+   * makes the defender roll (R12, R13). The row's `actorId` alone does not
+   * tell them apart — `kind` plus the skill's resolution does.
+   */
   readonly attackRoll: number | null;
+  /** `attackRoll` plus its modifiers: the number that was actually achieved. */
+  readonly attackTotal: number | null;
+  /** The number that had to be beaten: armor class in PHYSICAL, save difficulty in MAGIC. */
   readonly targetValue: number | null;
   readonly hit: boolean | null;
   readonly critical: boolean;
@@ -113,6 +122,7 @@ export type CombatEvent =
       readonly actorId: string;
       readonly rolls: readonly number[];
       readonly kept: number;
+      readonly total: number;
       readonly targetValue: number;
       readonly hit: boolean;
       readonly critical: boolean;
@@ -122,6 +132,7 @@ export type CombatEvent =
       readonly defenderId: string;
       readonly rolls: readonly number[];
       readonly kept: number;
+      readonly total: number;
       readonly difficulty: number;
       readonly passed: boolean;
     }

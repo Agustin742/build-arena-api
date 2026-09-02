@@ -134,7 +134,7 @@ describe('resolvePhysicalAttack', () => {
       random,
     });
 
-    expect(result.targetValue).toBe(13);
+    expect(result.total).toBe(13);
     expect(result.hit).toBe(true);
     expect(result.rawDamage).toBe(5);
   });

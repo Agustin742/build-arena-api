@@ -582,6 +582,7 @@ const toTurnView = (turn: BattleSessionRow['turns'][number]): TurnView => ({
   kind: turn.kind,
   skillCode: turn.skillCode,
   attackRoll: turn.attackRoll,
+  attackTotal: turn.attackTotal,
   targetValue: turn.targetValue,
   hit: turn.hit,
   critical: turn.critical,

@@ -107,6 +107,7 @@ export type TurnView = {
   kind: SkillType;
   skillCode: string | null;
   attackRoll: number | null;
+  attackTotal: number | null;
   targetValue: number | null;
   hit: boolean | null;
   critical: boolean;
