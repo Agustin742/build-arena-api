@@ -11,6 +11,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { FriendshipModule } from './friendship/friendship.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RatingModule } from './rating/rating.module';
 import { SkillModule } from './skill/skill.module';
 import { WsModule } from './ws/ws.module';
 
@@ -33,6 +34,7 @@ const DEFAULT_THROTTLE_LIMIT = 100;
     BuildModule,
     FriendshipModule,
     BattleModule,
+    RatingModule,
     WsModule,
   ],
   providers: [
