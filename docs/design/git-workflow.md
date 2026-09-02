@@ -97,7 +97,11 @@ El `scope` nombra el módulo tocado. Los de este proyecto:
 
 ```
 auth  user  build  skill  friendship  battle  combat  ws  rating  prisma  config
+health  design  readme  git
 ```
+
+Los cuatro de la segunda línea no son módulos de `src/`: nombran la superficie tocada cuando el
+cambio es de infraestructura o documentación. `rating` todavía no se usó — llega con la Fase 7.
 
 ### Reglas del mensaje
 
@@ -152,10 +156,11 @@ En un proyecto de un mes casi no aparece, pero se documenta por completitud.
 5.  git push -u origin feat/jwt-access-refresh
 6.  abrir pull request hacia main
 7.  releer el propio diff antes de integrar
-8.  integrar con squash
-9.  borrar la rama
-10. verificar que el despliegue quedó verde
+8.  integrar con squash, o con merge commit si la rama es parte de una pila
+9.  verificar que el despliegue quedó verde
 ```
+
+Las ramas remotas no se borran: quedan como registro del proceso, que es parte de lo que se evalúa.
 
 El paso 7 no es decorativo. **Leer el propio diff en la interfaz de GitHub encuentra cosas que no se ven en el editor**: un `console.log` olvidado, un archivo que no correspondía, un secreto que se coló. Trabajar solo no elimina la revisión; la vuelve tu responsabilidad.
 
@@ -180,6 +185,24 @@ Cada pull request se convierte en **un commit limpio en `main`**. Consecuencias:
 - El historial es lineal, sin telaraña de merges.
 
 Esto **no** contradice el requisito de commits progresivos: al final del mes `main` tiene decenas de commits con sentido repartidos en cuatro semanas, no uno solo.
+
+### Excepción: pilas de pull requests
+
+Lo de arriba vale para un pull request suelto contra `main`. **Cuando hay una pila —cada rama cortada de la anterior— se integra con merge commit, no con squash.**
+
+Y el motivo no es preferencia. El squash toma los commits de la rama y los aplasta en **uno nuevo, con un hash que nunca existió**. Las ramas de arriba están construidas sobre los commits originales, así que git termina comparando contra un commit que no es ancestro de nada de lo que conocen, y aparecen conflictos en archivos que nadie tocó dos veces. Con ocho ramas apiladas, cada squash rompe todas las que siguen.
+
+Con merge commit, los commits de la rama de abajo quedan como ancestros reales de `main`. Cuando le cambiás la base a la rama siguiente, git ya los reconoce y el diff muestra solamente lo nuevo.
+
+El procedimiento, entonces:
+
+1. Integrar de abajo hacia arriba, de a uno.
+2. Después de cada integración, cambiar la base del pull request siguiente a `main` **a mano**.
+3. Verificar el despliegue antes de seguir con el próximo.
+
+> GitHub reapunta solo la base de los pull requests hijos **únicamente si se borra la rama al integrar**. Este proyecto no borra ramas, así que el paso 2 es manual y no opcional.
+
+Así se integraron las nueve rebanadas de la Fase 6, en once pull requests.
 
 ### Protección de `main`
 
@@ -246,6 +269,10 @@ module.exports = {
         'rating',
         'prisma',
         'config',
+        'health',
+        'design',
+        'readme',
+        'git',
       ],
     ],
   },
