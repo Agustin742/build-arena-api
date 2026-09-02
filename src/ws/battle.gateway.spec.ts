@@ -98,6 +98,7 @@ const baseOutcome: TurnResolutionOutcome = {
   defeatedId: null,
   winnerId: null,
   endedAt: null,
+  rating: null,
 };
 
 describe('BattleGateway — action and reaction handlers', () => {
@@ -388,6 +389,23 @@ describe('BattleGateway — action and reaction handlers', () => {
         defeatedId: defenderCombatant.id,
         winnerId: actorCombatant.userId,
         endedAt,
+        rating: {
+          ranked: true,
+          changes: [
+            {
+              userId: actorCombatant.userId,
+              before: 1200,
+              change: 16,
+              after: 1216,
+            },
+            {
+              userId: defenderCombatant.userId,
+              before: 1200,
+              change: -16,
+              after: 1184,
+            },
+          ],
+        },
       };
       admitReaction.mockResolvedValue({ ok: true, row });
       resolve.mockResolvedValue(outcomeEnded);
@@ -401,6 +419,21 @@ describe('BattleGateway — action and reaction handlers', () => {
         winnerId: actorCombatant.userId,
         reason: 'DEFEAT',
         endedAt: endedAt.toISOString(),
+        ranked: true,
+        ratingChanges: [
+          {
+            userId: actorCombatant.userId,
+            before: 1200,
+            change: 16,
+            after: 1216,
+          },
+          {
+            userId: defenderCombatant.userId,
+            before: 1200,
+            change: -16,
+            after: 1184,
+          },
+        ],
       });
     });
   });
@@ -412,6 +445,13 @@ describe('BattleGateway — action and reaction handlers', () => {
         kind: 'ABANDONED',
         winnerId: ACTOR_USER_ID,
         endedAt,
+        rating: {
+          ranked: false,
+          changes: [
+            { userId: ACTOR_USER_ID, before: 1200, change: 0, after: 1200 },
+            { userId: DEFENDER_USER_ID, before: 1150, change: 0, after: 1150 },
+          ],
+        },
       });
       admitJoin.mockResolvedValue({
         ok: false,
@@ -428,6 +468,11 @@ describe('BattleGateway — action and reaction handlers', () => {
         winnerId: ACTOR_USER_ID,
         reason: 'ABANDONMENT',
         endedAt: endedAt.toISOString(),
+        ranked: false,
+        ratingChanges: [
+          { userId: ACTOR_USER_ID, before: 1200, change: 0, after: 1200 },
+          { userId: DEFENDER_USER_ID, before: 1150, change: 0, after: 1150 },
+        ],
       });
     });
   });

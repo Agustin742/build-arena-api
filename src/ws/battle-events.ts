@@ -164,11 +164,24 @@ export type BattleTurnResolvedPayload = {
  * Server → client: `battle:ended`. No rating delta field until Phase 7 —
  * the field is absent, not null (design's Event Contract).
  */
+/** One player's rating movement, as `battle:ended` renders it. */
+export type RatingChangeView = {
+  userId: string;
+  before: number;
+  change: number;
+  after: number;
+};
+
 export type BattleEndedPayload = {
   battleId: string;
   winnerId: string;
   reason: 'DEFEAT' | 'ABANDONMENT';
   endedAt: string;
+  // Always present, always both players. An unranked duel (two friends,
+  // overview §2.8) reports real ratings and a change of 0 rather than
+  // dropping the field: a client must never have to read absence.
+  ranked: boolean;
+  ratingChanges: RatingChangeView[];
 };
 
 /** Server → client: `battle:round_start`. */

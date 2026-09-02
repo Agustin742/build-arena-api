@@ -780,6 +780,69 @@ async function main() {
     return ended.winnerId === alice.id ? 'alice' : 'bruno';
   });
 
+  await scenario('the end carries both rating movements, not just a winner', () => {
+    expect(ended.ranked === true, 'a duel between strangers came back unranked');
+    expect(
+      ended.ratingChanges?.length === 2,
+      `expected both players, got ${ended.ratingChanges?.length}`,
+    );
+
+    const winner = ended.ratingChanges.find(
+      (entry) => entry.userId === ended.winnerId,
+    );
+    const loser = ended.ratingChanges.find(
+      (entry) => entry.userId !== ended.winnerId,
+    );
+
+    expect(winner.change > 0, `the winner moved by ${winner.change}`);
+    expect(loser.change < 0, `the loser moved by ${loser.change}`);
+
+    // Nothing is minted and nothing is burned: whatever one side gained is
+    // exactly what the other lost.
+    expect(
+      winner.change + loser.change === 0,
+      `the duel moved ${winner.change + loser.change} points into thin air`,
+    );
+
+    for (const entry of ended.ratingChanges) {
+      expect(
+        entry.after === entry.before + entry.change,
+        `${entry.userId}: ${entry.before} + ${entry.change} != ${entry.after}`,
+      );
+    }
+
+    return `${winner.before} -> ${winner.after} / ${loser.before} -> ${loser.after}`;
+  });
+
+  await scenario('the leaderboard shows what the battle just wrote', async () => {
+    const board = await call('GET', '/leaderboard?limit=100', {
+      token: alice.token,
+    });
+
+    for (const entry of ended.ratingChanges) {
+      const row = board.find((candidate) => candidate.id === entry.userId);
+      expect(row !== undefined, `${entry.userId} is missing from the board`);
+      expect(
+        row.rating === entry.after,
+        `board says ${row.rating}, battle said ${entry.after}`,
+      );
+      expect(
+        row.email === undefined && row.passwordHash === undefined,
+        'the board put a private column on the wire',
+      );
+    }
+
+    const ranks = board.map((entry) => entry.rank);
+    expect(
+      ranks.every((rank, index) => rank === index + 1),
+      'the board handed back ranks out of order',
+    );
+
+    return `${board.length} player(s), winner at rank ${
+      board.find((entry) => entry.id === ended.winnerId).rank
+    }`;
+  });
+
   await scenario('V2 a finished battle refuses further actions', () =>
     expectError(
       sockets.alice,

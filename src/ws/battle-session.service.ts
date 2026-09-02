@@ -6,6 +6,8 @@ import { applyTransition, closeBattle } from '../battle/rules';
 import { actionResolutionOf, isApplicable, REACTION_TABLE } from '../combat';
 import { BattleStatus, SkillType } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+import { RatingService } from '../rating/rating.service';
+import type { RatingOutcome } from '../rating/rating.service';
 import type {
   BattleReactionWindowPayload,
   BattleStatePayload,
@@ -37,6 +39,7 @@ export type SettleOutcome =
       readonly kind: 'ABANDONED';
       readonly winnerId: string;
       readonly endedAt: Date;
+      readonly rating: RatingOutcome;
     };
 
 /** `battle:reaction_window`'s deadline: 15 seconds from declaration (Event Contract). */
@@ -133,6 +136,7 @@ export class BattleSessionService {
     private readonly battleService: BattleService,
     private readonly prisma: PrismaService,
     private readonly turnResolution: TurnResolutionService,
+    private readonly rating: RatingService,
   ) {}
 
   /** The participant-scoped read `findForParticipant` already provides. */
@@ -157,6 +161,7 @@ export class BattleSessionService {
         challengerId: true,
         opponentId: true,
         currentRound: true,
+        ranked: true,
         pendingActionSkillCode: true,
         reactionDeadline: true,
         disconnectedUserId: true,
@@ -209,6 +214,7 @@ export class BattleSessionService {
       status: BattleStatus;
       challengerId: string;
       opponentId: string;
+      ranked: boolean;
       disconnectedUserId: string | null;
       disconnectDeadline: Date | null;
     },
@@ -233,18 +239,34 @@ export class BattleSessionService {
 
     const endedAt = new Date();
 
-    await this.prisma.battle.update({
-      where: { id: battleId },
-      data: {
-        status: outcome.to,
-        winnerId: outcome.winnerId,
-        endedAt,
-        disconnectedUserId: null,
-        disconnectDeadline: null,
-      },
+    // One transaction, for the same reason the defeat path uses one: a
+    // battle that committed as FINISHED without its rating write would never
+    // be closed again, so the points would be lost with nothing to show it.
+    const rating = await this.prisma.$transaction(async (tx) => {
+      await tx.battle.update({
+        where: { id: battleId },
+        data: {
+          status: outcome.to,
+          winnerId: outcome.winnerId,
+          endedAt,
+          disconnectedUserId: null,
+          disconnectDeadline: null,
+        },
+      });
+
+      // Walking away from a ranked duel is a loss, not an escape hatch.
+      return this.rating.settle(
+        tx,
+        {
+          challengerId: battle.challengerId,
+          opponentId: battle.opponentId,
+          ranked: battle.ranked,
+        },
+        outcome.winnerId,
+      );
     });
 
-    return { kind: 'ABANDONED', winnerId: outcome.winnerId, endedAt };
+    return { kind: 'ABANDONED', winnerId: outcome.winnerId, endedAt, rating };
   }
 
   /**
