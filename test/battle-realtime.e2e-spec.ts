@@ -42,15 +42,38 @@ const buildFor = (name: string) => ({
 
 type BattleView = { id: string; status: string };
 
+type WindowView = {
+  round: number;
+  actorUserId: string;
+  actionSkillCode: string;
+  deadline: string;
+  remainingMs: number;
+  applicableSkillCodes: string[];
+};
+
+type LeftView = { userId: string; deadline: string };
+
 type BattleStatePayload = {
   battleId: string;
   status: string;
   currentRound: number;
   activeUserId: string | null;
   combatants: unknown[];
+  turns?: unknown[];
+  openWindow?: WindowView | null;
+  opponentLeft?: LeftView | null;
 };
 
 type BattleErrorPayload = { code: string; message: string; event?: string };
+
+type BattleOpponentLeftPayload = { battleId: string } & LeftView;
+
+type BattleEndedPayload = {
+  battleId: string;
+  winnerId: string;
+  reason: 'DEFEAT' | 'ABANDONMENT';
+  endedAt: string;
+};
 
 describe('Battle realtime handshake and room admission (e2e)', () => {
   let app: INestApplication<App>;
@@ -768,6 +791,266 @@ describe('Battle realtime reaction window expiry (e2e)', () => {
 
       // Distinct from NOT_YOUR_TURN: it IS their turn, they already moved.
       expect((await errorPromise).code).toBe('ALREADY_DECLARED');
+    },
+    NETWORK_TIMEOUT,
+  );
+});
+
+/**
+ * The acceptance criterion for the whole realtime-battle phase: two clients
+ * fight end to end, and disconnecting and reconnecting one recovers the
+ * combat at the exact point it left off — read back from the DATABASE,
+ * never from anything the server happened to still hold in memory. The
+ * later abandonment closure is proved the exact same way the reaction
+ * window's own expiry already is (see the describe block above): backdating
+ * the persisted deadline instead of waiting out the real 2-minute grace
+ * period.
+ */
+describe('Battle realtime disconnect, reconnect and abandonment recovery (e2e)', () => {
+  let app: INestApplication<App>;
+  let prisma: PrismaService;
+  let url: string;
+  let sockets: ClientSocket[] = [];
+  let battleId: string;
+  let challengerId: string;
+  let opponentId: string;
+
+  const challenger = credentialsFor('dchl');
+  const opponent = credentialsFor('dopp');
+  const emails = [challenger.email, opponent.email];
+
+  const register = async (credentials: typeof challenger): Promise<string> => {
+    await request(app.getHttpServer())
+      .post('/auth/register')
+      .send(credentials)
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: credentials.email, password: credentials.password })
+      .expect(200);
+
+    return (response.body as { accessToken: string }).accessToken;
+  };
+
+  const createBuild = async (token: string, name: string): Promise<string> => {
+    const response = await request(app.getHttpServer())
+      .post('/builds')
+      .set('Authorization', `Bearer ${token}`)
+      .send(buildFor(name))
+      .expect(201);
+
+    return (response.body as { id: string }).id;
+  };
+
+  const connectAuthenticated = (token: string): Promise<ClientSocket> =>
+    new Promise((resolve, reject) => {
+      const client = ioClient(url, {
+        transports: ['websocket'],
+        reconnection: false,
+        auth: { token },
+      });
+      sockets.push(client);
+      client.on('connect', () => resolve(client));
+      client.on('connect_error', reject);
+    });
+
+  let challengerToken: string;
+  let opponentToken: string;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(RANDOM_SOURCE)
+      // 2 initiative d20s at accept, then the recovered round's attack d20
+      // and its 1d8 — the abandonment closure consumes no dice at all.
+      .useValue(new SequenceRandomSource([15, 5, 15, 5, 10, 10, 10, 10]))
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    prisma = app.get(PrismaService);
+    await app.init();
+    await app.listen(0);
+
+    const httpServer = app.getHttpServer() as Server;
+    const address = httpServer.address() as AddressInfo;
+    url = `http://127.0.0.1:${address.port}`;
+
+    challengerToken = await register(challenger);
+    opponentToken = await register(opponent);
+
+    const challengerBuildId = await createBuild(
+      challengerToken,
+      'DisconnectChallenger',
+    );
+    const opponentBuildId = await createBuild(
+      opponentToken,
+      'DisconnectOpponent',
+    );
+
+    const challengerUser = await prisma.user.findUniqueOrThrow({
+      where: { email: challenger.email },
+      select: { id: true },
+    });
+    const opponentUser = await prisma.user.findUniqueOrThrow({
+      where: { email: opponent.email },
+      select: { id: true },
+    });
+    challengerId = challengerUser.id;
+    opponentId = opponentUser.id;
+
+    const challengeResponse = await request(app.getHttpServer())
+      .post('/battles')
+      .set('Authorization', `Bearer ${challengerToken}`)
+      .send({ opponentId, buildId: challengerBuildId })
+      .expect(201);
+
+    battleId = (challengeResponse.body as BattleView).id;
+
+    await request(app.getHttpServer())
+      .patch(`/battles/${battleId}/accept`)
+      .set('Authorization', `Bearer ${opponentToken}`)
+      .send({ buildId: opponentBuildId })
+      .expect(200);
+  }, NETWORK_TIMEOUT);
+
+  afterAll(async () => {
+    const ids = [challengerId, opponentId];
+
+    await prisma.battle.deleteMany({
+      where: {
+        OR: [{ challengerId: { in: ids } }, { opponentId: { in: ids } }],
+      },
+    });
+    await prisma.user.deleteMany({ where: { email: { in: emails } } });
+    for (const socket of sockets) {
+      socket.close();
+    }
+    sockets = [];
+    await app.close();
+  }, NETWORK_TIMEOUT);
+
+  it(
+    'recovers a mid-window disconnect from the database, then closes the battle by abandonment once the deadline passes',
+    async () => {
+      const challengerSocket = await connectAuthenticated(challengerToken);
+      const opponentSocket = await connectAuthenticated(opponentToken);
+
+      await Promise.all([
+        new Promise<void>((resolve) => {
+          challengerSocket.once('battle:state', () => resolve());
+          challengerSocket.emit('battle:join', { battleId });
+        }),
+        new Promise<void>((resolve) => {
+          opponentSocket.once('battle:state', () => resolve());
+          opponentSocket.emit('battle:join', { battleId });
+        }),
+      ]);
+
+      // Round 1: the challenger (higher scripted initiative) declares.
+      const windowPromise = new Promise<ReactionWindowPayload>((resolve) => {
+        opponentSocket.once('battle:reaction_window', resolve);
+      });
+      challengerSocket.emit('battle:action', {
+        battleId,
+        skillCode: 'POWER_STRIKE',
+      });
+      const window = await windowPromise;
+      expect(window.actorUserId).toBe(challengerId);
+
+      // The defender's socket drops mid-window — a real TCP close.
+      const opponentLeftPromise = new Promise<BattleOpponentLeftPayload>(
+        (resolve) => {
+          challengerSocket.once('battle:opponent_left', resolve);
+        },
+      );
+      opponentSocket.close();
+      const opponentLeft = await opponentLeftPromise;
+      expect(opponentLeft.userId).toBe(opponentId);
+
+      // Reconnect with a NEW socket before the 2-minute deadline elapses.
+      const opponentSocket2 = await connectAuthenticated(opponentToken);
+      const state = await new Promise<BattleStatePayload>((resolve) => {
+        opponentSocket2.once('battle:state', resolve);
+        opponentSocket2.emit('battle:join', { battleId });
+      });
+
+      // The window survived in the DATABASE: the same unchanged deadline,
+      // a smaller recomputed remaining time, and the disconnect cleared.
+      expect(state.openWindow).not.toBeNull();
+      expect(state.openWindow?.deadline).toBe(window.deadline);
+      expect(state.openWindow?.remainingMs).toBeLessThanOrEqual(
+        window.remainingMs,
+      );
+      expect(state.opponentLeft).toBeNull();
+
+      // The recovered client finishes the EXACT round it left off in.
+      const turnResolvedPromises = Promise.all([
+        new Promise<TurnResolvedPayload>((resolve) =>
+          challengerSocket.once('battle:turn_resolved', resolve),
+        ),
+        new Promise<TurnResolvedPayload>((resolve) =>
+          opponentSocket2.once('battle:turn_resolved', resolve),
+        ),
+      ]);
+      const roundStartPromise = new Promise<RoundStartPayload>((resolve) => {
+        challengerSocket.once('battle:round_start', resolve);
+      });
+      opponentSocket2.emit('battle:reaction', {
+        battleId,
+        skillCode: 'PARRY',
+      });
+      const [challengerResolved] = await turnResolvedPromises;
+      expect(challengerResolved.round).toBe(1);
+      expect(challengerResolved.defeatedId).toBeNull();
+
+      const roundStart = await roundStartPromise;
+      expect(roundStart.round).toBe(2);
+      expect(roundStart.activeUserId).toBe(opponentId);
+
+      // Round 2 hands the turn to the opponent, whose new socket now drops
+      // for real, without ever declaring an action.
+      const opponentLeftAgainPromise = new Promise<void>((resolve) => {
+        challengerSocket.once('battle:opponent_left', () => resolve());
+      });
+      opponentSocket2.close();
+      await opponentLeftAgainPromise;
+
+      // No background sweep evaluates the deadline — it is settled lazily,
+      // so the real 2-minute wait is bypassed exactly like the reaction
+      // window's own expiry is bypassed above.
+      await prisma.battle.update({
+        where: { id: battleId },
+        data: { disconnectDeadline: new Date(Date.now() - 1_000) },
+      });
+
+      const endedPromise = new Promise<BattleEndedPayload>((resolve) => {
+        challengerSocket.once('battle:ended', resolve);
+      });
+      // The survivor's next message for the battle is what evaluates the
+      // deadline — never a background sweep.
+      challengerSocket.emit('battle:join', { battleId });
+      const ended = await endedPromise;
+
+      expect(ended.winnerId).toBe(challengerId);
+      expect(ended.reason).toBe('ABANDONMENT');
+      expect(ended.endedAt).toBeTruthy();
+
+      const finalBattle = await prisma.battle.findUniqueOrThrow({
+        where: { id: battleId },
+        select: { status: true, winnerId: true, endedAt: true },
+      });
+      expect(finalBattle.status).toBe('FINISHED');
+      expect(finalBattle.winnerId).toBe(challengerId);
+      expect(finalBattle.endedAt).not.toBeNull();
     },
     NETWORK_TIMEOUT,
   );

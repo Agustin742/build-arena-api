@@ -2,14 +2,17 @@ import { Injectable } from '@nestjs/common';
 
 import type { BattleSessionRow } from '../battle/battle.mapper';
 import { BattleService } from '../battle/battle.service';
-import { applyTransition } from '../battle/rules';
+import { applyTransition, closeBattle } from '../battle/rules';
 import { actionResolutionOf, isApplicable, REACTION_TABLE } from '../combat';
 import { BattleStatus, SkillType } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   BattleReactionWindowPayload,
-  CombatantView,
   BattleStatePayload,
+  CombatantView,
+  LeftView,
+  TurnView,
+  WindowView,
 } from './battle-events';
 import type {
   KitEntry,
@@ -27,8 +30,20 @@ export type AdmitJoinResult =
 
 export type MessageAdmitResult = AdmitJoinResult;
 
+/** What the lazy path (`settleOverdue`) found and already acted on. */
+export type SettleOutcome =
+  | { readonly kind: 'TURN_RESOLVED'; readonly outcome: TurnResolutionOutcome }
+  | {
+      readonly kind: 'ABANDONED';
+      readonly winnerId: string;
+      readonly endedAt: Date;
+    };
+
 /** `battle:reaction_window`'s deadline: 15 seconds from declaration (Event Contract). */
 const REACTION_WINDOW_MS = 15_000;
+
+/** The abandonment grace period a disconnected participant is given. */
+const DISCONNECT_GRACE_MS = 2 * 60_000;
 
 /** A `JOIN` context needs only what V1/V2 read — every other field is inert. */
 const joinContext = (
@@ -126,26 +141,40 @@ export class BattleSessionService {
   }
 
   /**
-   * The LOAD-BEARING lazy path (design's sequence diagram 2): called before
-   * every message's own checks. If this battle's reaction window has a
-   * deadline already in the past, resolves it through the exact same
-   * `TurnResolutionService.resolve()` the timer and the reaction handler
-   * call — never a second resolution path. `reaction: null` is what makes
-   * expiry preserve the defender's `reactionAvailable` (the resolver's own
-   * rule, not re-derived here). Returns `null` when nothing was overdue.
+   * The LOAD-BEARING lazy path (design's sequence diagrams 2 and 3): called
+   * before every message's own checks. Checks abandonment first — a
+   * survivor's message must close an overdue battle before anything else,
+   * including a pending reaction window — then falls back to the reaction
+   * window branch. `reaction: null` is what makes expiry preserve the
+   * defender's `reactionAvailable` (the resolver's own rule, not re-derived
+   * here). Returns `null` when nothing was overdue.
    */
-  async settleOverdue(battleId: string): Promise<TurnResolutionOutcome | null> {
+  async settleOverdue(battleId: string): Promise<SettleOutcome | null> {
     const battle = await this.prisma.battle.findUnique({
       where: { id: battleId },
       select: {
+        status: true,
+        challengerId: true,
+        opponentId: true,
         currentRound: true,
         pendingActionSkillCode: true,
         reactionDeadline: true,
+        disconnectedUserId: true,
+        disconnectDeadline: true,
       },
     });
 
+    if (!battle) {
+      return null;
+    }
+
+    const abandoned = await this.closeIfAbandoned(battleId, battle);
+
+    if (abandoned) {
+      return abandoned;
+    }
+
     if (
-      !battle ||
       battle.pendingActionSkillCode === null ||
       battle.reactionDeadline === null ||
       battle.reactionDeadline.getTime() > Date.now()
@@ -153,12 +182,104 @@ export class BattleSessionService {
       return null;
     }
 
-    return this.turnResolution.resolve(
+    const outcome = await this.turnResolution.resolve(
       battleId,
       battle.currentRound,
       battle.pendingActionSkillCode,
       null,
     );
+
+    return { kind: 'TURN_RESOLVED', outcome };
+  }
+
+  /**
+   * The abandonment branch (D2's `closeBattle`): a passed `disconnectDeadline`
+   * with no reconnect closes the battle in the surviving participant's favor
+   * before their message is otherwise processed. Closing twice, or closing a
+   * battle some other path already finished, both fall out of `closeBattle`
+   * refusing anything not `IN_PROGRESS` — a graceful no-op here, never a
+   * throw, because unlike a fresh defeat this path is reached from whatever
+   * message happens to arrive next. A battle abandoned by BOTH participants
+   * simply never gets a survivor's message to trigger this — the accepted
+   * limitation, not a bug.
+   */
+  private async closeIfAbandoned(
+    battleId: string,
+    battle: {
+      status: BattleStatus;
+      challengerId: string;
+      opponentId: string;
+      disconnectedUserId: string | null;
+      disconnectDeadline: Date | null;
+    },
+  ): Promise<SettleOutcome | null> {
+    if (
+      battle.disconnectedUserId === null ||
+      battle.disconnectDeadline === null ||
+      battle.disconnectDeadline.getTime() > Date.now()
+    ) {
+      return null;
+    }
+
+    const survivorId =
+      battle.disconnectedUserId === battle.challengerId
+        ? battle.opponentId
+        : battle.challengerId;
+    const outcome = closeBattle(battle, survivorId, 'ABANDONMENT');
+
+    if (!outcome.allowed) {
+      return null;
+    }
+
+    const endedAt = new Date();
+
+    await this.prisma.battle.update({
+      where: { id: battleId },
+      data: {
+        status: outcome.to,
+        winnerId: outcome.winnerId,
+        endedAt,
+        disconnectedUserId: null,
+        disconnectDeadline: null,
+      },
+    });
+
+    return { kind: 'ABANDONED', winnerId: outcome.winnerId, endedAt };
+  }
+
+  /**
+   * Called from `BattleGateway.handleDisconnect` (design's sequence diagram
+   * 3): starts the 2-minute abandonment deadline for a participant whose
+   * socket just dropped. No timer is armed for it — `settleOverdue` above is
+   * the only thing that ever acts on it, lazily, on the survivor's next
+   * message. Returns `null` — nothing to notify — when the battle cannot be
+   * abandoned right now: already over, or the caller was never in it.
+   */
+  async recordDisconnect(
+    battleId: string,
+    userId: string,
+  ): Promise<Date | null> {
+    const battle = await this.prisma.battle.findUnique({
+      where: { id: battleId },
+      select: { status: true, challengerId: true, opponentId: true },
+    });
+
+    if (
+      !battle ||
+      battle.status !== BattleStatus.IN_PROGRESS ||
+      (battle.challengerId !== userId && battle.opponentId !== userId)
+    ) {
+      return null;
+    }
+
+    const disconnectDeadline = new Date(Date.now() + DISCONNECT_GRACE_MS);
+
+    await this.prisma.battle.update({
+      where: { id: battleId },
+      data: { disconnectedUserId: userId, disconnectDeadline },
+    });
+
+    return disconnectDeadline;
   }
 
   /** Thin delegate: the seven checks are declared exactly once, in `rules/`. */
@@ -186,7 +307,10 @@ export class BattleSessionService {
 
     // `authorizeMessage` already refused a `null` row, so `row` is not null
     // by the time we get here.
-    const admitted = row as BattleSessionRow;
+    const admitted = await this.clearDisconnectIfMine(
+      row as BattleSessionRow,
+      actorId,
+    );
 
     if (admitted.status !== BattleStatus.ACCEPTED) {
       return { ok: true, row: admitted };
@@ -222,6 +346,28 @@ export class BattleSessionService {
         startedAt,
       },
     };
+  }
+
+  /**
+   * A rejoining participant cancels their OWN abandonment deadline
+   * (requirement "Reconnecting Before the Abandonment Deadline Cancels
+   * It") — never the other side's. A targeted update, so an open reaction
+   * window's `reactionDeadline` is never touched by this.
+   */
+  private async clearDisconnectIfMine(
+    row: BattleSessionRow,
+    actorId: string,
+  ): Promise<BattleSessionRow> {
+    if (row.disconnectedUserId !== actorId) {
+      return row;
+    }
+
+    await this.prisma.battle.update({
+      where: { id: row.id },
+      data: { disconnectedUserId: null, disconnectDeadline: null },
+    });
+
+    return { ...row, disconnectedUserId: null, disconnectDeadline: null };
   }
 
   /** One combatant's kit, read fresh: `Build -> BuildSkill -> Skill`. */
@@ -353,16 +499,58 @@ export class BattleSessionService {
   }
 
   /**
-   * Today's `battle:state`: status, round, active player, and combatants.
-   * `turns`, `openWindow` and `opponentLeft` join this in slice 7.
+   * `battle:state` — the full reconnect payload (design's sequence diagram
+   * 3): both frozen stat blocks, the resolved turn history in order, an
+   * open reaction window's remaining time (or `null`), and whether the
+   * opponent is mid-disconnect (or `null`). Every field is read straight
+   * off `row` — the database is the only authority a reconnect trusts.
    */
-  toStatePayload(row: BattleSessionRow): BattleStatePayload {
+  async toStatePayload(row: BattleSessionRow): Promise<BattleStatePayload> {
     return {
       battleId: row.id,
       status: row.status,
       currentRound: row.currentRound,
       activeUserId: row.activeUserId,
       combatants: row.combatants.map(toCombatantView),
+      turns: row.turns.map(toTurnView),
+      openWindow: await this.openWindowView(row),
+      opponentLeft: toLeftView(row),
+    };
+  }
+
+  /**
+   * Mirrors `declareAction`'s own `applicableSkillCodes` computation —
+   * reused, never re-derived — so a reconnecting client sees exactly what
+   * the defender was originally shown.
+   */
+  private async openWindowView(
+    row: BattleSessionRow,
+  ): Promise<WindowView | null> {
+    if (
+      row.pendingActionSkillCode === null ||
+      row.reactionDeadline === null ||
+      row.activeUserId === null
+    ) {
+      return null;
+    }
+
+    const defender = row.combatants.find(
+      (combatant) => combatant.userId !== row.activeUserId,
+    );
+    const applicableSkillCodes = defender
+      ? await this.applicableReactionSkillCodes(
+          row.pendingActionSkillCode,
+          defender.buildId,
+        )
+      : [];
+
+    return {
+      round: row.currentRound,
+      actorUserId: row.activeUserId,
+      actionSkillCode: row.pendingActionSkillCode,
+      deadline: row.reactionDeadline.toISOString(),
+      remainingMs: Math.max(0, row.reactionDeadline.getTime() - Date.now()),
+      applicableSkillCodes,
     };
   }
 }
@@ -386,3 +574,24 @@ const toCombatantView = (
     roundsRemaining: condition.roundsRemaining,
   })),
 });
+
+const toTurnView = (turn: BattleSessionRow['turns'][number]): TurnView => ({
+  round: turn.round,
+  sequence: turn.sequence,
+  actorId: turn.actorId,
+  kind: turn.kind,
+  skillCode: turn.skillCode,
+  attackRoll: turn.attackRoll,
+  targetValue: turn.targetValue,
+  hit: turn.hit,
+  critical: turn.critical,
+  damage: turn.damage,
+});
+
+const toLeftView = (row: BattleSessionRow): LeftView | null =>
+  row.disconnectedUserId === null || row.disconnectDeadline === null
+    ? null
+    : {
+        userId: row.disconnectedUserId,
+        deadline: row.disconnectDeadline.toISOString(),
+      };

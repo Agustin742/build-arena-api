@@ -49,7 +49,14 @@ export type WsErrorPayload = {
  */
 export type SocketData = {
   user: AuthenticatedUser;
+  // Set once `battle:join` admits the socket to a room, so `handleDisconnect`
+  // knows which battle to record the drop against — Socket.IO has already
+  // left every room by the time `disconnect` fires.
+  battleId?: string;
 };
+
+/** Server → client: `battle:opponent_left`. */
+export type BattleOpponentLeftPayload = { battleId: string } & LeftView;
 
 /** Client → server: `battle:join`. */
 export type BattleJoinPayload = {
@@ -106,7 +113,7 @@ export type TurnView = {
   damage: number;
 };
 
-/** The open-window shape shared by `battle:reaction_window` and (slice 7's) `battle:state`. */
+/** The open-window shape shared by `battle:reaction_window` and `battle:state`. */
 export type WindowView = {
   round: number;
   actorUserId: string;
@@ -116,10 +123,17 @@ export type WindowView = {
   applicableSkillCodes: string[];
 };
 
+/** The disconnect shape shared by `battle:opponent_left` and `battle:state`. */
+export type LeftView = {
+  userId: string;
+  deadline: string;
+};
+
 /**
- * Server → client: `battle:state`, limited for now to what admitting a join
- * needs. `turns`, `openWindow` and `opponentLeft` join this same event in
- * slice 7, once reconnection needs the full history.
+ * Server → client: `battle:state`. The full reconnect payload (design's
+ * sequence diagram 3): both frozen stat blocks, the resolved turn history in
+ * order, an open reaction window's remaining time when one exists, and
+ * whether the opponent is mid-disconnect.
  */
 export type BattleStatePayload = {
   battleId: string;
@@ -127,6 +141,9 @@ export type BattleStatePayload = {
   currentRound: number;
   activeUserId: string | null;
   combatants: CombatantView[];
+  turns: TurnView[];
+  openWindow: WindowView | null;
+  opponentLeft: LeftView | null;
 };
 
 /** Server → client: `battle:reaction_window`. */

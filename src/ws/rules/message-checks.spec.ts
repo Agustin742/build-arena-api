@@ -74,6 +74,12 @@ describe('V2 — the battle must be in the right status', () => {
     ).toBeNull();
   });
 
+  it('lets JOIN through for a finished battle, so the result stays readable', () => {
+    expect(
+      check(baseCtx({ intent: 'JOIN', status: BattleStatus.FINISHED })),
+    ).toBeNull();
+  });
+
   it('refuses JOIN for a battle still pending', () => {
     expect(
       check(baseCtx({ intent: 'JOIN', status: BattleStatus.PENDING })),

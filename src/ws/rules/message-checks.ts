@@ -56,9 +56,16 @@ type Check = {
  */
 const NOT_FOUND: WsDenial = { code: 'NOT_FOUND', message: 'Battle not found' };
 
+/**
+ * `FINISHED` is here so a participant can still read back a battle that is
+ * already over — the turn history and the final stat blocks outlive the
+ * fight. `admitJoin` only fires `START` from `ACCEPTED`, so admitting a
+ * finished battle cannot restart it.
+ */
 const JOIN_STATUSES: readonly BattleStatus[] = [
   BattleStatus.ACCEPTED,
   BattleStatus.IN_PROGRESS,
+  BattleStatus.FINISHED,
 ];
 
 const kitEntryFor = (ctx: SessionContext): KitEntry | null =>

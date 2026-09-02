@@ -17,6 +17,7 @@ import type {
   BattleActionPayload,
   BattleEndedPayload,
   BattleJoinPayload,
+  BattleOpponentLeftPayload,
   BattleReactionPayload,
   BattleTurnResolvedPayload,
   CombatantView,
@@ -131,7 +132,18 @@ export class BattleGateway
     }
 
     this.reactionTimer.cancel(battleId);
-    await this.emitResolution(battleId, outcome);
+
+    if (outcome.kind === 'ABANDONED') {
+      this.server.to(battleRoom(battleId)).emit(ServerEvent.ENDED, {
+        battleId,
+        winnerId: outcome.winnerId,
+        reason: 'ABANDONMENT',
+        endedAt: outcome.endedAt.toISOString(),
+      });
+      return;
+    }
+
+    await this.emitResolution(battleId, outcome.outcome);
   }
 
   /**
@@ -183,9 +195,36 @@ export class BattleGateway
     this.logger.debug(`Socket connected: ${user.id}`);
   }
 
-  handleDisconnect(socket: Socket): void {
-    const { user } = socket.data as SocketData;
+  /**
+   * Design's sequence diagram 3: records the 2-minute abandonment deadline
+   * and notifies the room, but only for a socket that actually joined a
+   * battle — `battleId` is set on `socket.data` by `handleJoin`, since
+   * Socket.IO has already left every room by the time `disconnect` fires.
+   * No timer is armed here; `settleOverdue` is the only thing that ever
+   * acts on this, lazily, on the survivor's next message.
+   */
+  async handleDisconnect(socket: Socket): Promise<void> {
+    const { user, battleId } = socket.data as SocketData;
     this.logger.debug(`Socket disconnected: ${user.id}`);
+
+    if (!battleId) {
+      return;
+    }
+
+    const deadline = await this.session.recordDisconnect(battleId, user.id);
+
+    if (!deadline) {
+      return;
+    }
+
+    const payload: BattleOpponentLeftPayload = {
+      battleId,
+      userId: user.id,
+      deadline: deadline.toISOString(),
+    };
+    this.server
+      .to(battleRoom(battleId))
+      .emit(ServerEvent.OPPONENT_LEFT, payload);
   }
 
   /**
@@ -213,7 +252,13 @@ export class BattleGateway
     }
 
     await socket.join(battleRoom(payload.battleId));
-    socket.emit(ServerEvent.STATE, this.session.toStatePayload(result.row));
+    // Remembered for `handleDisconnect`, which cannot read it back from the
+    // socket's rooms once it has actually disconnected.
+    (socket.data as SocketData).battleId = payload.battleId;
+    socket.emit(
+      ServerEvent.STATE,
+      await this.session.toStatePayload(result.row),
+    );
   }
 
   /**

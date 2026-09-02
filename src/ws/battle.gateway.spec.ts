@@ -105,6 +105,7 @@ describe('BattleGateway — action and reaction handlers', () => {
   const declareAction = jest.fn();
   const settleOverdue = jest.fn();
   const toStatePayload = jest.fn();
+  const recordDisconnect = jest.fn();
   const session = {
     admitJoin,
     admitAction,
@@ -112,6 +113,7 @@ describe('BattleGateway — action and reaction handlers', () => {
     declareAction,
     settleOverdue,
     toStatePayload,
+    recordDisconnect,
   } as unknown as BattleSessionService;
 
   const resolve = jest.fn();
@@ -145,13 +147,23 @@ describe('BattleGateway — action and reaction handlers', () => {
   describe('handleJoin', () => {
     it('settles an overdue window before admitting the join (reconnect mid-window)', async () => {
       admitJoin.mockResolvedValue({ ok: true, row: { id: BATTLE_ID } });
-      toStatePayload.mockReturnValue({ battleId: BATTLE_ID });
+      toStatePayload.mockResolvedValue({ battleId: BATTLE_ID });
       const { socket } = fakeSocket(ACTOR_USER_ID);
 
       await gateway.handleJoin(socket, { battleId: BATTLE_ID });
 
       expect(settleOverdue).toHaveBeenCalledWith(BATTLE_ID);
       expect(admitJoin).toHaveBeenCalled();
+    });
+
+    it('remembers the joined battleId on the socket, for a later disconnect', async () => {
+      admitJoin.mockResolvedValue({ ok: true, row: { id: BATTLE_ID } });
+      toStatePayload.mockResolvedValue({ battleId: BATTLE_ID });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleJoin(socket, { battleId: BATTLE_ID });
+
+      expect((socket.data as SocketData).battleId).toBe(BATTLE_ID);
     });
   });
 
@@ -174,7 +186,10 @@ describe('BattleGateway — action and reaction handlers', () => {
     });
 
     it('cancels the timer and broadcasts the outcome when the window was already overdue', async () => {
-      settleOverdue.mockResolvedValue(baseOutcome);
+      settleOverdue.mockResolvedValue({
+        kind: 'TURN_RESOLVED',
+        outcome: baseOutcome,
+      });
       startRound.mockResolvedValue({ actor: defenderCombatant, events: [] });
       admitAction.mockResolvedValue({
         ok: false,
@@ -385,6 +400,71 @@ describe('BattleGateway — action and reaction handlers', () => {
         reason: 'DEFEAT',
         endedAt: endedAt.toISOString(),
       });
+    });
+  });
+
+  describe('handleJoin — settleOverdue finding an abandoned battle', () => {
+    it('emits battle:ended with reason ABANDONMENT before the join is otherwise admitted', async () => {
+      const endedAt = new Date('2099-01-01T00:00:00.000Z');
+      settleOverdue.mockResolvedValue({
+        kind: 'ABANDONED',
+        winnerId: ACTOR_USER_ID,
+        endedAt,
+      });
+      admitJoin.mockResolvedValue({
+        ok: false,
+        denial: { code: 'WRONG_STATUS', message: 'the battle is finished' },
+      });
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleJoin(socket, { battleId: BATTLE_ID });
+
+      expect(cancel).toHaveBeenCalledWith(BATTLE_ID);
+      expect(server.to).toHaveBeenCalledWith(ROOM);
+      expect(roomEmit).toHaveBeenCalledWith(ServerEvent.ENDED, {
+        battleId: BATTLE_ID,
+        winnerId: ACTOR_USER_ID,
+        reason: 'ABANDONMENT',
+        endedAt: endedAt.toISOString(),
+      });
+    });
+  });
+
+  describe('handleDisconnect', () => {
+    it('does nothing when the socket never joined a battle room', async () => {
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+
+      await gateway.handleDisconnect(socket);
+
+      expect(recordDisconnect).not.toHaveBeenCalled();
+      expect(roomEmit).not.toHaveBeenCalled();
+    });
+
+    it('records the disconnect and notifies the room when a joined participant drops', async () => {
+      const deadline = new Date('2099-01-01T00:00:00.000Z');
+      recordDisconnect.mockResolvedValue(deadline);
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+      (socket.data as SocketData).battleId = BATTLE_ID;
+
+      await gateway.handleDisconnect(socket);
+
+      expect(recordDisconnect).toHaveBeenCalledWith(BATTLE_ID, ACTOR_USER_ID);
+      expect(server.to).toHaveBeenCalledWith(ROOM);
+      expect(roomEmit).toHaveBeenCalledWith(ServerEvent.OPPONENT_LEFT, {
+        battleId: BATTLE_ID,
+        userId: ACTOR_USER_ID,
+        deadline: deadline.toISOString(),
+      });
+    });
+
+    it('emits nothing when the battle could not be recorded as abandoned', async () => {
+      recordDisconnect.mockResolvedValue(null);
+      const { socket } = fakeSocket(ACTOR_USER_ID);
+      (socket.data as SocketData).battleId = BATTLE_ID;
+
+      await gateway.handleDisconnect(socket);
+
+      expect(roomEmit).not.toHaveBeenCalled();
     });
   });
 });
