@@ -37,6 +37,7 @@ La API está desplegada, con el modelo de datos migrado, el catálogo de habilid
 | 5 — Social y desafíos | Completa |
 | 6 — Tiempo real | Completa |
 | 7 — Rating y cierre | En curso: rating, leaderboard y balanceo hechos; queda la verificación contra el deploy |
+| 8 — Congelar el kit y exponerlo | Pendiente: deuda posterior a la entrega, no es un punto de la consigna |
 
 ---
 

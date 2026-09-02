@@ -712,6 +712,11 @@ el servidor resuelve solo: no mandes nada al expirar.
 
 Documentados porque son reales, no porque se vayan a arreglar solos.
 
+> Los dos están anotados como **Fase 8** en
+> [`implementation-plan.md`](./design/implementation-plan.md), que es deuda posterior a la
+> entrega. **Cuando esa fase entre, esta sección se borra**: el kit va a viajar dentro de
+> `CombatantView` y va a estar congelado de verdad. Hasta entonces, esto es lo que hay.
+
 ### 9.1 El kit no viaja al cliente durante la batalla
 
 `CombatantView` trae atributos, vida y condiciones, pero **no la lista de habilidades**.

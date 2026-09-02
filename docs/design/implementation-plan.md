@@ -227,6 +227,78 @@ chore(combat): tune combat balance values
 
 ---
 
+## Fase 8 — Congelar el kit y exponerlo
+
+**Objetivo:** cerrar los dos huecos que aparecieron al documentar la API para el cliente.
+No agregan funcionalidad: sacan una inconsistencia y una omisión que hoy obligan al
+frontend a adivinar.
+
+Los dos son el mismo problema visto desde dos lados. **El kit de una batalla no está
+congelado y tampoco se publica.**
+
+### El hueco 1: el kit se lee en vivo, no se congela
+
+Al aceptar un desafío, `freezeCombatant` copia a `BattleCombatant` los cuatro atributos y
+los valores derivados. **La lista de habilidades no se copia.** Se lee de `BuildSkill` en
+cada mensaje, a través de `BattleSessionService.kitFor(buildId)`.
+
+Y `PATCH /builds/:id` con `skillCodes` reemplaza el kit entero —`deleteMany` más `create`,
+porque un kit son cuatro casilleros y no una lista a la que se agrega—.
+
+La consecuencia es que **un jugador puede editar su build en medio de una pelea y cambiar
+las habilidades con las que está peleando**. Los atributos siguen congelados, así que no
+puede inflarse las estadísticas: el agujero es de kit, no de números.
+
+Contradice de frente lo que la fase 5 dejó escrito, que es que aceptar congela a los dos
+combatientes y editar la build después ya no cambia esa pelea. Hoy eso es verdad a medias.
+
+### El hueco 2: el kit congelado nunca llega al cliente
+
+`CombatantView` lleva atributos, vida, iniciativa y condiciones, y ninguna habilidad.
+Ningún evento ni endpoint le dice al cliente **qué acciones puede declarar**.
+
+Para las reacciones no hace falta: `battle:reaction_window` ya manda
+`applicableSkillCodes`, filtrado por tipo de ataque y disponibilidad. Para las acciones no
+hay nada, así que el cliente tiene que pedir `GET /builds/:id` y filtrar por `ACTION` —y
+eso lee la build **actual**, que por el hueco 1 puede no ser la que está en juego—.
+
+Peor: `BattleDto` no devuelve el `buildId`, así que el cliente tiene que habérselo
+guardado desde que desafió o aceptó.
+
+### Alcance
+
+- Persistir el kit congelado en la batalla, no leerlo de la build.
+- `resolveTurn` y las siete validaciones pasan a leer ese kit congelado.
+- Publicarlo: `CombatantView` suma las habilidades del combatiente, con lo que
+  `battle:state` y `battle:turn_resolved` lo llevan sin ningún evento nuevo.
+- Verificar que editar una build con una batalla en curso deja esa batalla intacta.
+
+### Cuidados
+
+- **Hay filas vivas.** Toda batalla `IN_PROGRESS` al momento de migrar no tiene kit
+  congelado. Decidir explícitamente: rellenar desde `BuildSkill` en la migración, o
+  aceptar que las batallas viejas sigan por el camino actual. No dejarlo librado al azar.
+- `BattleCombatant.buildId` ya es nullable con `SET NULL`, para que borrar una build no se
+  lleve puesta la historia de una batalla terminada. El kit congelado tiene que sobrevivir
+  a ese `SET NULL`: es justamente el caso que hoy devuelve un kit vacío.
+- `applicableSkillCodes` ya se calcula desde el kit; al cambiar la fuente, ese cálculo
+  tiene que seguir dando lo mismo.
+- El contrato de `battle:state` cambia. `docs/frontend-guide.md` documenta los dos huecos
+  en su sección 9: **cuando esta fase entre, esa sección se borra y se actualizan las
+  tablas de eventos.**
+
+**Terminado cuando:** una build editada en medio de una batalla no cambia esa batalla,
+verificado contra el deploy; y el cliente puede armar el menú de acciones sin llamar a
+`/builds`.
+
+```
+feat(battle): freeze the skill kit alongside the frozen stats
+feat(ws): publish each combatant's kit in the state payload
+docs(design): drop the two gaps phase 8 closed
+```
+
+---
+
 ## Calendario
 
 | Semana | Fases | Hito |
@@ -238,12 +310,16 @@ chore(combat): tune combat balance values
 
 La semana 4 es margen deliberado. Si las fases 5 y 6 se corren, hay dónde absorberlo. Si no se corren, hay tiempo para la cola de matchmaking de fase 2 del alcance.
 
+**La fase 8 queda fuera de este calendario a propósito.** No es un punto de la consigna: es
+deuda que se descubrió documentando la API para el cliente, y se salda después de entregar.
+El proyecto se aprueba sin ella; el backend no queda pulido sin ella.
+
 ---
 
 ## Dependencias
 
 ```
-Fase 0  ->  Fase 1  ->  Fase 2  ->  Fase 4  ->  Fase 5  ->  Fase 6  ->  Fase 7
+Fase 0  ->  Fase 1  ->  Fase 2  ->  Fase 4  ->  Fase 5  ->  Fase 6  ->  Fase 7  ->  Fase 8
                                       ^                       ^
 Fase 3 (motor puro, sin dependencias)-+-----------------------+
 ```
