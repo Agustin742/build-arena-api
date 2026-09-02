@@ -6,11 +6,26 @@ Change: `add-realtime-battle`. Branch: `feat/add-realtime-battle` (base: `main`)
 ## Status
 
 10/10 Slice 0 tasks complete. 10/10 Slice 1 tasks complete. 3/3 Slice 2 tasks complete. 6/6
-Slice 3 tasks complete. 9/9 Slice 4 tasks complete. Slices 5–7 not started. Ready for
-`sdd-verify` on slices 0–4, or for `sdd-apply` to continue with slice 5 once PR 4 is
-reviewed/merged per the stacked-to-main chain strategy. Slice 4's native attempt authority is
-`blocked(maintainer_decision)` pending a `gentle-ai sdd-attempt reset` — see "Native Runtime
-Attempt Authority (Slice 4)" below; this does not affect the correctness of the implementation.
+Slice 3 tasks complete. 9/9 Slice 4 tasks complete. Slice 5: 4/5 tasks complete (5.1-5.4
+implemented and fully verified; 5.5 blocked — see below). Slices 6-7 not started.
+
+**Slice 5 is BLOCKED, not committed.** Implementation is complete and every verify command is
+green (`pnpm test` 401/401, `pnpm test:cov` clean, `pnpm test:e2e` 39/39, `pnpm lint` clean,
+`npx tsc --noEmit` clean, `pnpm build` clean with `dist/main.js` at root), but the measured
+logic-line diff is **519 additions / 547 net against the 400 review budget** (1.3x the 45-65
+forecast) — per the apply prompt's explicit instruction, work stopped before any commit once
+this was measured. `delivery_strategy` is `ask-on-risk` and no `size:exception` was granted, so
+a maintainer/orchestrator decision is needed: raise the budget, split slice 5 into two chained
+sub-slices, or grant `size:exception`. All changes sit **uncommitted** on `feat/ws-action-wiring`
+(branched from slice 4's tip `31e20f0`) — working tree only, nothing staged, nothing pushed. See
+"Slice 5 — Blocked on Review Budget" below for full detail.
+
+Slice 4's native attempt authority is `blocked(maintainer_decision)` pending a
+`gentle-ai sdd-attempt reset` — see "Native Runtime Attempt Authority (Slice 4)" below; this does
+not affect the correctness of the implementation. Slice 5's own native attempt authority is ALSO
+now `blocked(maintainer_decision)` for the same reason (see "Native Runtime Attempt Authority
+(Slice 5)" below) — both slices need the same maintainer reset before further attempts can
+acquire.
 
 ## Completed Tasks (Slice 0)
 
@@ -784,3 +799,248 @@ implementation — all tests pass, including the real-database concurrency test.
    everything already written in that same transaction on a `P2002` — including the claim's own
    `updateMany` — which is why the idempotent re-read has to run as a separate, non-`tx`
    read after the transaction has already unwound.
+
+---
+
+# Slice 5 — `feat/ws-action-wiring` (base: slice 4, `31e20f0`) — BLOCKED, not committed
+
+Branch `feat/ws-action-wiring` created from slice 4's tip (`31e20f0`). All work is complete and
+verified but sits **uncommitted in the working tree only** — see "Why blocked" below.
+
+## Completed Tasks (Slice 5)
+
+- [x] 5.1 RED — `src/ws/battle.gateway.spec.ts` (new file): 6 unit tests covering
+      `handleAction` (denial → `battle:error`, admission → `declareAction` + `battle:reaction_window`
+      to everyone but the sender) and `handleReaction` (denial → `battle:error`; admission →
+      `resolve()` → room-wide `battle:turn_resolved`; continuing → `startRound()` +
+      `battle:round_start`; ending → `battle:ended`, no `startRound` call)
+- [x] 5.2 GREEN — `src/ws/battle.gateway.ts`: `handleAction` and `handleReaction` handlers.
+      Both are thin: read fresh session context via `session.admitAction`/`admitReaction`, deny
+      via `battle:error` on failure, otherwise hand off to `BattleSessionService.declareAction`
+      or `TurnResolutionService.resolve()`. **No rule logic added to this file** — every
+      legality decision still routes through `authorize()` in `rules/message-checks.ts`
+      (untouched this slice); the gateway only shapes payloads and routes emits
+- [x] 5.3 GREEN — `src/ws/battle-events.ts`: added `BattleActionPayload`, `BattleReactionPayload`,
+      `TurnView`, `WindowView`, `BattleReactionWindowPayload`, `BattleTurnResolvedPayload`,
+      `BattleEndedPayload`, `BattleRoundStartPayload`. Renamed `BattleStateCombatant` →
+      `CombatantView` (the design's canonical name, per that file's own slice-1 comment
+      flagging this exact rename as deferred to slice 5) and updated `BattleStatePayload` and
+      `battle-session.service.ts`'s `toCombatantView` to use it — no behavior change, single
+      shared type instead of two identical ones
+- [x] 5.4 E2E — extended `test/battle-realtime.e2e-spec.ts` with a second, independent
+      `describe` block (own `INestApplication`, own port, own users) that overrides
+      `RANDOM_SOURCE` with a scripted `SequenceRandomSource([15, 5, 15, 5, 10, 10, 10, 10])` —
+      2 initiative d20s (challenger then opponent, consumed during REST `accept`), then the
+      round's attack d20 and its 1d8 damage roll, padded with margin. Full round: challenger
+      declares `POWER_STRIKE`, opponent receives `battle:reaction_window` with
+      `applicableSkillCodes: ['DODGE', 'PARRY']` (both answer PHYSICAL; `FIREBALL` is excluded
+      as an ACTION-type skill), opponent declares `PARRY`, both clients receive a
+      byte-identical `battle:turn_resolved` (defender HP 30 → 27, PARRY halves 1d8(5)+2=7 down
+      to 3) and a byte-identical `battle:round_start` (round 2, `activeUserId` = opponent)
+- [ ] 5.5 Verify — **BLOCKED**. All four commands ran and are green (detail below), the diff
+      was measured (that measurement is what triggered the block), but PR 5 was never opened
+      and nothing was committed, per the apply prompt's explicit stop-before-commit instruction.
+
+## Additional production changes beyond the literal task list
+
+Two small, deliberately minimal extensions outside `battle.gateway.ts`/`battle-events.ts` were
+needed to keep the gateway "thin" (no rule/judgment logic) while still reusing existing engine
+code rather than reimplementing it:
+
+1. **`src/combat/turn.ts`** — the private `resolutionOf` helper (PHYSICAL/MAGIC from a skill's
+   `requiredAttribute`, R14) is now exported as `actionResolutionOf`, with its parameter
+   widened from `DeclaredAction` to `Pick<CombatSkill, 'requiredAttribute'>` so a caller outside
+   the engine can call it directly. `battle:reaction_window`'s `applicableSkillCodes` needs this
+   exact mapping (to filter the defender's kit through `REACTION_TABLE`/`isApplicable`, both
+   already exported); exporting the engine's own one-liner was judged safer than duplicating it
+   a second time in `src/ws`. Internal call site updated; `turn.spec.ts` gained 2 direct tests.
+2. **`src/ws/turn-resolution.service.ts`** — two additions, both reusing existing private
+   helpers rather than adding new persistence logic:
+   - `TurnResolutionOutcome` gained `winnerId: string | null` / `endedAt: Date | null`, needed
+     to build the wire's `battle:ended` payload. On a fresh resolve, `persistBattleAdvance` now
+     returns `closeBattle`'s own already-computed `winnerId` (never re-derived); on a re-emit,
+     `reReadResolution` reads the already-persisted `Battle.winnerId`/`endedAt` columns back —
+     both paths read a value the service already computed/persisted, never recompute one.
+   - `startRound(round, actor): Promise<RoundStartOutcome>` — a new public method, one small
+     `$transaction` that calls the pure engine `startRound()`, persists
+     `reactionAvailable: true`, and calls the **already-existing, unmodified**
+     `persistConditions(tx, events)` private helper (previously used only from `resolve()`) to
+     persist the tick's condition events. Zero new condition-persistence logic. This is exactly
+     what slice 4's own apply-progress flagged as deferred here: *"the full `startRound` call
+     for the incoming actor is a separate step the gateway makes after `battle:turn_resolved`...
+     that belongs to slice 5/6."*
+   Both changes are additive to an existing, already-tested file; no prior slice-4 behavior
+   changed (all 13 pre-existing `turn-resolution.service.spec.ts` tests still pass unmodified).
+3. **`src/ws/ws.module.ts`** — registered `TurnResolutionService` as a provider (1 line +
+   import), completing the DI wiring slice 4 deliberately deferred: *"DI registration is
+   deferred to slice 5, when the gateway actually calls it."*
+
+## Files Changed (Slice 5)
+
+| File | Action | What Was Done |
+|------|--------|---------------|
+| `src/combat/turn.ts` | Modified | Exported `actionResolutionOf` (was private `resolutionOf`), widened its parameter type |
+| `src/combat/turn.spec.ts` | Modified | 2 new tests for `actionResolutionOf` as public API |
+| `src/ws/battle-events.ts` | Modified | New client/server payload types; `BattleStateCombatant` renamed to `CombatantView` |
+| `src/ws/battle-session.service.ts` | Modified | `messageContext` (ACTION/REACTION context builder incl. kit loading), `admitAction`, `admitReaction`, `declareAction`, `applicableReactionSkillCodes`, `kitFor` |
+| `src/ws/battle-session.service.spec.ts` | Modified | 8 new tests for the above |
+| `src/ws/battle.gateway.ts` | Modified | `handleAction`, `handleReaction`, and the `toCombatantView`/`toTurnView`/`toTurnResolvedPayload`/`toEndedPayload` wire mappers; constructor now also takes `TurnResolutionService` |
+| `src/ws/battle.gateway.spec.ts` | Created | 6 unit tests for the two new handlers |
+| `src/ws/turn-resolution.service.ts` | Modified | `winnerId`/`endedAt` on the outcome type; new `startRound()` method (reuses `persistConditions`) |
+| `src/ws/turn-resolution.service.spec.ts` | Modified | 5 new tests (winnerId/endedAt on 2 existing scenarios + re-emit; 2 new `startRound` tests) |
+| `src/ws/ws.module.ts` | Modified | Registered `TurnResolutionService` as a provider |
+| `test/battle-realtime.e2e-spec.ts` | Modified | New `describe` block, own app instance, scripted `RANDOM_SOURCE`, full-round e2e test |
+| `openspec/changes/add-realtime-battle/tasks.md` | Modified | 5.1-5.4 marked `[x]`; 5.5 marked blocked with detail |
+
+Scope discipline confirmed: **no condition in `battle.gateway.ts` decides whether a move is
+legal.** Every V1-V7 check still lives exclusively in `rules/message-checks.ts` (byte-for-byte
+unchanged this slice). The gateway's two new handlers each contain exactly one `if (!result.ok)`
+branch (route to `battle:error` or continue) and one `if (outcome.defeatedId)` branch (route to
+`battle:ended` or continue to `startRound`) — both are pure result-routing on values already
+computed by `BattleSessionService`/`TurnResolutionService`, not new legality judgments. No
+in-memory reaction timer was built (slice 6). No full state reassembly, disconnect handling, or
+abandonment closure was built (slice 7). `prisma migrate dev/deploy/db:push/db:seed` were never
+run.
+
+## TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| turn.ts export | `src/combat/turn.spec.ts` | Unit | ✅ 24/24 (pre-existing, all still pass) | ➖ Structural rename+export of already-tested logic (both branches already covered indirectly by existing PHYSICAL/MAGIC tests); 2 direct tests added as approval/triangulation, not strict RED-first | ✅ 26/26 | ✅ 2 cases (MAGIC, PHYSICAL) | ➖ None needed |
+| battle-session.service.ts (admitAction/admitReaction/declareAction) | `src/ws/battle-session.service.spec.ts` | Unit (mocked Prisma) | ✅ 11/11 (pre-existing) | ✅ Written — 8 new tests failed on `TypeError: ... is not a function` / undefined mock reads | ✅ 19/19 | ✅ Out-of-turn denial, kit-admitted, kit-denied (ACTION); decline-admitted, no-window-denial, kit-denied (REACTION); deadline+payload shape, `REACTION_TABLE`-filtered `applicableSkillCodes` (declareAction) | ✅ Clean — no restructuring needed |
+| turn-resolution.service.ts (winnerId/endedAt, startRound) | `src/ws/turn-resolution.service.spec.ts` | Unit (mocked Prisma) | ✅ 8/8 (pre-existing) | ✅ Written — 5 new tests failed (3 on `undefined` winnerId/endedAt, 2 on `service.startRound is not a function`) | ✅ 13/13 | ✅ No-defeat (both null) vs DEFEAT (both set) vs re-emit (read from DB); condition survives-and-ticks vs condition-already-0-removed (Decision C) | ✅ Clean |
+| battle.gateway.ts (handleAction/handleReaction) | `src/ws/battle.gateway.spec.ts` (new) | Unit (hand-built fake socket/server, no `TestingModule` — matches `ws-auth.middleware.spec.ts` convention) | N/A (new file) | ✅ Written — all 6 failed on `TypeError: gateway.handle{Action,Reaction} is not a function` | ✅ 6/6 | ✅ ACTION: denial vs admission; REACTION: denial vs continuing (broadcast + startRound) vs ended (no startRound) | ✅ Clean — one lint pass (`@typescript-eslint/unbound-method` on `expect(socket.emit)`; fixed by returning the raw mock functions from the test's `fakeSocket` helper alongside the typed socket, asserting on the mocks directly) |
+| test/battle-realtime.e2e-spec.ts (full round) | `test/battle-realtime.e2e-spec.ts` | E2E (real DB, real sockets, real HTTP, scripted dice) | ✅ 3/3 (pre-existing describe block, untouched, still pass) | ➖ Written against already-GREEN unit-level production code, per design intent — this is the "does it actually work end to end, with two real Socket.IO clients and a real transaction" proof, not a behavior-first RED (same posture as slice 4's real-database concurrency test) | ✅ 1/1 on first run | ➖ Single scenario: the full round IS the triangulation this task calls for (action → window → reaction → resolution → next round) | ➖ None needed |
+
+### Test Summary
+- Total tests written: 22 (2 + 8 + 5 + 6 + 1)
+- Total tests passing: 401/401 unit (full suite, up from 384 at slice 4 baseline), 39/39 e2e
+  (full suite, up from 38 at slice 4 baseline)
+- Layers used: Unit/mocked-Prisma or hand-built-fakes (21 new; 401 total unit), E2E/real-stack
+  (1 new; 39 total e2e)
+- Pure functions/services created: 0 new services — `TurnResolutionService.startRound` extends
+  an existing one; `toCombatantView`/`toTurnView`/`toTurnResolvedPayload`/`toEndedPayload` in
+  `battle.gateway.ts` are new pure mapper functions (module-level, no `this`, no I/O)
+
+## Work Unit Evidence
+
+| Evidence | Value |
+|---|---|
+| Focused test command and exact result | `npx jest src/ws/battle.gateway.spec.ts src/ws/battle-session.service.spec.ts src/ws/turn-resolution.service.spec.ts src/combat/turn.spec.ts` → 4 suites, 64/64 passing |
+| Runtime harness command/scenario and exact result | `pnpm test:e2e` → 8 suites, 39/39 passing (all 38 pre-existing e2e tests still green, +1 new full-round test) |
+| Rollback boundary | Nothing is committed — `git status --short` on `feat/ws-action-wiring` shows only working-tree modifications and one untracked file (`src/ws/battle.gateway.spec.ts`); `git checkout -- .` (or simply not committing) fully reverts this slice with zero effect on slice 4 or earlier |
+
+## Verification Detail
+
+- `pnpm test`: 40 suites, 401/401 tests passing (384 pre-existing + 17 new unit)
+- `pnpm test:cov`: same 40/401, coverage thresholds pass; `battle.gateway.ts` line coverage
+  75.71% (unit-only — the uncovered lines are `handleJoin`'s pre-existing paths and a few
+  "unreachable" invariant-guard throws; the e2e test exercises the full happy path live)
+- `pnpm test:e2e`: 8 suites, 39/39 tests passing (38 pre-existing + 1 new), all pre-existing
+  e2e still green, no open-handle hangs
+- `pnpm lint`: clean after one fix round (`eslint --fix` first auto-reformatted line-wrapping in
+  `battle.gateway.ts`/`battle-session.service.ts`/`turn-resolution.service.ts`, then flagged
+  `@typescript-eslint/unbound-method` on three `expect(socket.emit)`/`expect(socket.to)`
+  assertions in the new gateway spec — fixed by having the test's `fakeSocket` helper return the
+  raw `emit`/`to` mock functions alongside the typed socket, asserting on those directly instead
+  of the socket's own bound methods)
+- `npx tsc --noEmit`: clean, no errors
+- `pnpm build`: clean; `dist/main.js` confirmed at the root of `dist/`
+- Logic-line diff (exact prompt formula): `git diff --numstat feat/ws-turn-resolution --
+  'src/**/*.ts' ':!*.spec.ts' | awk '{s+=$1} END {print s}'` = **519** (additions only) against
+  the 400 budget; additions+deletions = 547. Both exceed 400. Forecast was 45-65 — off by
+  roughly 8-11x, a larger miss than slice 4's own ~2x miss (170-240 forecast, 400 actual).
+- Per-file breakdown of the non-spec diff (`+ / -`): `battle-session.service.ts` 190/3,
+  `battle.gateway.ts` 175/1, `battle-events.ts` 81/10, `turn-resolution.service.ts` 53/9,
+  `turn.ts` 13/4, `ws.module.ts` 7/1
+
+## Why Blocked — the forecast miss, explained
+
+The 45-65 forecast covered only the two `@SubscribeMessage` handlers and their direct payload
+types. It did not account for (and the tasks.md text for 5.1-5.3 does not mention) three
+substantial pieces of supporting logic the design requires but does not assign a home for
+explicitly:
+
+1. **ACTION/REACTION `SessionContext` construction**, including a fresh kit lookup
+   (`Build -> BuildSkill -> Skill`) neither `findForParticipant` nor any prior slice loads —
+   `joinContext` (slice 1) only ever built a `JOIN` context with `actor: null`. This alone is
+   ~110 of `battle-session.service.ts`'s 190 added lines.
+2. **`applicableSkillCodes` computation** for `battle:reaction_window` — REACTION_TABLE/
+   isApplicable filtering against the defender's kit and the action's PHYSICAL/MAGIC
+   resolution, which required exporting `actionResolutionOf` from the engine (design says this
+   value is "computed from the defender's kit through REACTION_TABLE and isApplicable," but
+   assigns no file to the computation itself).
+3. **`startRound` + persistence**, explicitly named in slice 4's own apply-progress as
+   deferred here ("a separate step the gateway makes... that belongs to slice 5/6") but not
+   reflected in slice 5's 45-65 forecast or its literal task list.
+
+None of these are scope creep — all three are named in the design document (Event Contract,
+sequence diagram 1, "Round advancement," "Spending the reaction is the gateway's job") and
+required to satisfy `realtime-turn-exchange`'s requirements. The forecast simply undercounted
+the orchestration weight of "thin" handlers that still have to build correct, kit-aware
+authorization context and shape five distinct outgoing payload types.
+
+## Native Runtime Attempt Authority (Slice 5)
+
+`gentle-ai sdd-attempt acquire` (`ph6-slice5-acq-child-1`, `--max-changed-lines 600`) returned
+`state: "proceed"` with the parent-issued token. `gentle-ai sdd-attempt settle`
+(`ph6-slice5-settle-1`, `outcome: interrupted` — no `evidence-revision`, since `interrupted`
+does not require one) returned `state: "blocked"`, `reason: "maintainer_decision"`, the same
+class of finding as slices 0, 1, and 4: this attempt's own everything-included changed-line
+count exceeds the `--max-changed-lines 600` ceiling set at `acquire` (working-tree diff alone,
+across all touched files including specs and the e2e file, is 1321 insertions / 32 deletions =
+1353 lines). A maintainer must run `gentle-ai sdd-attempt reset` with the `--expected-revision`
+`status` prints before another slice 5 attempt (or slice 6) can acquire. This is independent
+confirmation, from the native runtime's own accounting, of the same review-budget overage
+measured above — not a new or different problem.
+
+## Workload / PR Boundary (Slice 5)
+
+- Mode: stacked PR slice (`stacked-to-main` chain strategy) — **not delivered this batch**
+- Current work unit: Slice 5 — "Action/reaction gateway handlers wired to the resolver" —
+  implementation and verification complete, delivery blocked
+- Boundary: would start at `31e20f0` (slice 4 tip) and end with one or more new commits — **zero
+  commits exist**; all 11 changed files (10 modified + 1 new) sit in the working tree only
+- Estimated review budget impact: 519 additions / 547 net against the 400 budget (1.3x over) —
+  **exceeds budget**, unlike slice 4 which hit exactly 400. `delivery_strategy` is `ask-on-risk`;
+  no `size:exception` was granted in this apply invocation, so per the apply prompt's explicit
+  instruction ("If it exceeds 400, STOP and report before committing further"), no commit was
+  made
+- PR 5 not opened, branch not pushed (as instructed, and additionally blocked by the above)
+
+### Options for the next decision (not decided here — this is a report, not a choice)
+
+1. **Grant `size:exception`** for slice 5 as a single ~550-line PR — the three supporting pieces
+   above (context+kit loading, `applicableSkillCodes`, `startRound`+persistence) are cohesive
+   with the two handlers they serve; splitting them apart would scatter one conceptual unit
+   ("wire the handlers to the resolver, correctly") across artificial file boundaries.
+2. **Split into two chained sub-slices** — e.g. 5a: `BattleSessionService` context/kit/
+   `declareAction`/`applicableSkillCodes` work (~280 lines) as its own PR targeting slice 4;
+   5b: the two gateway handlers + `TurnResolutionService.startRound` (~270 lines) as a PR
+   targeting 5a. Both would individually clear 400.
+3. **Raise the slice 5 budget** in tasks.md's Review Workload Forecast table and proceed as one
+   PR, documenting the revised number for future slices' calibration (the same pattern already
+   visible slice-over-slice: slice 4 forecast 170-240, landed at exactly 400).
+
+## Key Learnings (Slice 5)
+
+1. `resolutionOf`'s PHYSICAL/MAGIC mapping (a skill's `requiredAttribute === 'MAGIC'`) is needed
+   outside the combat engine — by `battle:reaction_window`'s `applicableSkillCodes` — and
+   exporting the engine's own already-tested one-liner (renamed `actionResolutionOf`, widened to
+   accept just `{requiredAttribute}`) is safer than re-deriving the same mapping a second time.
+2. No prior slice loads a combatant's kit (`Build -> BuildSkill -> Skill`) — `joinContext` only
+   ever built a `JOIN` context with `actor: null` — so ACTION/REACTION authorization needed a
+   new context builder with its own kit query, which was the single largest addition in this
+   slice and the main driver of the forecast miss.
+3. `TurnResolutionService.persistConditions(tx, events)` (built in slice 4 for `resolve()`) is
+   generic enough to reuse verbatim for `startRound()`'s own condition-tick persistence — zero
+   new condition-persistence logic was needed, only a new `$transaction` wrapper around the pure
+   engine call and one `reactionAvailable: true` update.
+4. `@typescript-eslint/unbound-method` fires on `expect(socket.emit)`/`expect(socket.to)` even
+   inside a hand-built fake-socket object literal; the fix is to have the test helper return the
+   raw mock functions alongside the typed socket and assert on those directly, not on the
+   socket's own (unbound) method properties.
+5. A 45-65 line forecast for "thin" WebSocket handlers undercounted by roughly 8-11x once the
+   handlers' full supporting context (kit-aware authorization, reaction-window computation, and
+   round-start persistence — all named in the design but not assigned a file or a line estimate)
+   is accounted for; slice 4's own 170-240→400 miss (~2x) did not fully anticipate this.

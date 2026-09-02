@@ -229,19 +229,19 @@ environment; every PR is opened by hand at
 
 ## Slice 5 — `feat/ws-action-wiring` (base: slice 4)
 
-- [ ] 5.1 RED: extend `src/ws/battle.gateway.spec.ts` (or a new spec) — `battle:action`
+- [x] 5.1 RED: extend `src/ws/battle.gateway.spec.ts` (or a new spec) — `battle:action`
       writes `pendingActionSkillCode`/`reactionDeadline = now + 15s` and emits
       `battle:reaction_window`; `battle:reaction` calls
       `turn-resolution.service.resolve()`, emits `battle:turn_resolved` to both room members,
       `battle:ended` on closure, and calls `startRound` + emits `battle:round_start` for the
       incoming actor. `test(ws): cover action and reaction handler orchestration`
-- [ ] 5.2 Impl: `src/ws/battle.gateway.ts` — `battle:action` and `battle:reaction` handlers per
+- [x] 5.2 Impl: `src/ws/battle.gateway.ts` — `battle:action` and `battle:reaction` handlers per
       5.1 (no timer/expiry logic yet — that is slice 6).
       `feat(ws): wire action and reaction handlers to the resolver`
-- [ ] 5.3 Impl: `src/ws/battle-events.ts` — extend with `battle:action`, `battle:reaction`,
+- [x] 5.3 Impl: `src/ws/battle-events.ts` — extend with `battle:action`, `battle:reaction`,
       `battle:reaction_window`, `battle:turn_resolved`, `battle:ended` payloads;
       `CombatantView`, `TurnView`. Folded into 5.2's commit.
-- [ ] 5.4 E2E: extend `battle-realtime.e2e-spec.ts` — full round: action declared, reaction
+- [x] 5.4 E2E: extend `battle-realtime.e2e-spec.ts` — full round: action declared, reaction
       declared, both clients receive identical `battle:turn_resolved`, HP/conditions reflected.
       **Script two initiative d20s before the first attack roll** — the `SequenceRandomSource`
       override also drives `freezeCombatant`'s initiative roll during the REST `accept` step;
@@ -249,6 +249,12 @@ environment; every PR is opened by hand at
       `test(ws): cover a full round resolving through both handlers`
 - [ ] 5.5 Verify: `pnpm test`, `pnpm test:e2e`, `pnpm lint`, `pnpm build`. Measure diff against
       slice 4. Open PR 5; retarget base to `feat/ws-turn-resolution`.
+      **BLOCKED**: all four verify commands ran green (see apply-progress), but the measured
+      logic-line diff is 519 additions / 547 net against the 400 budget (1.3x forecast).
+      Stopped before commit per delivery_strategy `ask-on-risk` — no `size:exception` granted.
+      Native `sdd-attempt settle` independently confirms `blocked(maintainer_decision)` on its
+      own everything-included changed-line ceiling. Nothing committed; all changes sit
+      uncommitted on `feat/ws-action-wiring`, working tree only.
 
 ## Slice 6 — `feat/ws-reaction-timeout` (base: slice 5)
 
